@@ -163,6 +163,7 @@ function SplitCell({ index, slot, machines, terminalFontSize, theme, palette, on
               agent={pane.agent}
               agentStatus={pane.agent_status}
               view={slot.view}
+              fitFixedWidthOnly
               terminalFontSize={terminalFontSize}
               theme={theme}
               palette={palette}
