@@ -35,7 +35,7 @@ export function MachineSidebar(props: Props) {
       <button className="btn sidebar-new-session" disabled={target !== undefined && target.state !== "connected"} title={target ? t("New session on {name}", { name: target.name }) : t("New session")} onClick={props.actions.openNewSession}><Plus aria-hidden="true" />{t("New session")}</button>
       <button className="btn btn-ghost sidebar-add-pc" onClick={props.onAdd}><Monitor aria-hidden="true" />{t("Add PC")}</button>
     </div>
-    <UsagePanel />
+    <UsagePanel machines={props.machines} />
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
       <NeedsInput machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} onSelect={props.onSelect} />
       {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
@@ -47,7 +47,7 @@ export function MachineSidebar(props: Props) {
       {!installed && !canInstall && installHelpOpen && <p className="sidebar-install-help" role="status">{help}</p>}
       <div className="sidebar-footer-row">
         <button className="btn btn-ghost sidebar-footer-action" title={t("Settings (⌘⇧,)")} onClick={props.actions.openSettings}><Settings aria-hidden="true" />{t("Settings")}</button>
-        <UsageMeters />
+        <UsageMeters machines={props.machines} />
       </div>
       <div className="sidebar-brandline">
         <span className="sidebar-app-name">herdr web ui v{__APP_VERSION__}</span>
