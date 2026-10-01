@@ -263,6 +263,19 @@
   font-weight: var(--fw-medium);
 }
 
+.usage-accounts-machine {
+  flex: 0 1 auto;
+  max-width: 9rem;
+  overflow: hidden;
+  padding: 1px var(--space-1);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .usage-accounts-account {
   flex: 1 1 auto;
   min-width: 0;
