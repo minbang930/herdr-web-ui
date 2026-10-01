@@ -7,6 +7,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../.
 import { paneTitle } from "../../shared/notify-policy.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import type { AppActions } from "../lib/actions.ts";
+import { PANE_DRAG_MIME } from "../lib/splitView.ts";
 import { useInstallPrompt } from "../lib/install.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -223,6 +224,13 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
     event.dataTransfer.setData("application/x-herdr-workspace", JSON.stringify({ machine_id: machineId, workspace_id: workspaceId }));
   };
 
+  const onPaneDragStart = (event: DragEvent<HTMLElement>, paneId: string): void => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(PANE_DRAG_MIME, JSON.stringify({ machine_id: machineId, pane_id: paneId }));
+    event.dataTransfer.setData("text/plain", `${machineId}:${paneId}`);
+  };
+
   const onDrop = (event: DragEvent<HTMLElement>, targetWorkspaceId: string): void => {
     event.preventDefault();
     let payload: { machine_id?: string; workspace_id?: string };
@@ -345,6 +353,8 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                           className="pane-select"
                           role="button"
                           tabIndex={0}
+                          draggable={!editing}
+                          onDragStart={(event) => onPaneDragStart(event, pane.pane_id)}
                           aria-current={selected ? "true" : undefined}
                           title={`${pane.pane_id} — ${fullTitle}${pane.cwd ? ` — ${pane.cwd}` : ""}`}
                           onClick={() => actions.selectPane(pane.pane_id)}
