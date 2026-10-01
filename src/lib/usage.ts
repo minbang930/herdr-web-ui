@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProviderUsage, UsageProviderId, UsageReport, UsageWindow } from "../../shared/protocol.ts";
+import type { Machine } from "../../shared/machines.ts";
 import { fetchUsage } from "./api.ts";
 import type { UsageCount } from "./settings.ts";
 import { t } from "./i18n.ts";
@@ -43,6 +44,50 @@ export function usageName(usage: ProviderUsage): string {
   return usage.account ? `${PROVIDER_NAME[usage.id]} · ${usage.account}` : PROVIDER_NAME[usage.id];
 }
 
+export interface MachineProviderUsage extends ProviderUsage {
+  /** the PC whose bridge read this subscription */
+  readonly machine_id: string;
+  readonly machine_name: string;
+  /** the provider's original key before the PC namespace is added */
+  readonly provider_key: string;
+}
+
+export interface MachineUsageReport {
+  readonly providers: readonly MachineProviderUsage[];
+}
+
+/** Stable per-PC key: the same account on two PCs can be ordered or hidden independently. */
+export function machineUsageKey(machineId: string, providerKey: string): string {
+  return `${machineId}::${providerKey}`;
+}
+
+/** Attach the PC identity to one bridge report for the combined sidebar view. */
+export function mergeMachineUsage(
+  machines: readonly Pick<Machine, "id" | "name">[],
+  reports: ReadonlyMap<string, UsageReport>,
+): MachineUsageReport {
+  const providers: MachineProviderUsage[] = [];
+  for (const machine of machines) {
+    const report = reports.get(machine.id);
+    if (!report) continue;
+    for (const usage of report.providers) {
+      providers.push({
+        ...usage,
+        provider_key: usage.key,
+        key: machineUsageKey(machine.id, usage.key),
+        machine_id: machine.id,
+        machine_name: machine.name,
+      });
+    }
+  }
+  return { providers };
+}
+
+/** Provider/account plus the PC that supplied it, for tooltips and accessibility text. */
+export function machineUsageName(usage: MachineProviderUsage): string {
+  return `${usageName(usage)} · ${usage.machine_name}`;
+}
+
 /** What a meter shows of a limit: the share used, or what is left. */
 export function meterPercent(window: UsageWindow, count: UsageCount): number {
   return count === "left" ? Math.round((100 - window.used_percent) * 10) / 10 : window.used_percent;
@@ -74,7 +119,7 @@ export function formatPercent(value: number): string {
  * The accounts in the user's order (`order`, by key), then the rest: a limit near its end first,
  * otherwise the server's order.
  */
-export function orderProviders(providers: readonly ProviderUsage[], order: readonly string[] = []): ProviderUsage[] {
+export function orderProviders<T extends ProviderUsage>(providers: readonly T[], order: readonly string[] = []): T[] {
   const rank = new Map(order.map((key, index) => [key, index]));
   return [...providers].sort((a, b) => {
     const ranked = [rank.get(a.key), rank.get(b.key)];
@@ -97,24 +142,43 @@ export function moveInOrder(shown: readonly string[], saved: readonly string[], 
   return [...next, ...saved.filter((known) => !shown.includes(known))];
 }
 
-export function useUsage(enabled: boolean) {
-  const [report, setReport] = useState<UsageReport | null>(null);
+export function useUsage(enabled: boolean, machines: readonly Machine[] = []) {
+  const [report, setReport] = useState<MachineUsageReport | null>(null);
   const [loading, setLoading] = useState(false);
   const visible = usePageVisible();
   const generation = useRef(0);
+  // A transient SSH/bridge error must not erase a PC's last good quota numbers.
+  const cached = useRef(new Map<string, UsageReport>());
+
+  const machineSignature = machines.map((machine) => `${machine.id}:${machine.name}:${machine.state}`).join("|");
 
   const load = useCallback(async (refresh: boolean) => {
     const current = ++generation.current;
     setLoading(true);
+    const targets = machines.filter((machine) => machine.state === "connected");
     try {
-      const next = await fetchUsage(refresh);
-      if (current === generation.current) setReport((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-    } catch { /* offline or restarting: the last report stays */ }
-    finally { if (current === generation.current) setLoading(false); }
-  }, []);
+      const settled = await Promise.allSettled(targets.map((machine) => fetchUsage(refresh, machine.id)));
+      if (current !== generation.current) return;
+      const active = new Set(targets.map((machine) => machine.id));
+      for (const id of [...cached.current.keys()]) if (!active.has(id)) cached.current.delete(id);
+      settled.forEach((result, index) => {
+        if (result.status === "fulfilled") cached.current.set(targets[index]!.id, result.value);
+      });
+      const next = mergeMachineUsage(targets, cached.current);
+      setReport((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+    } finally {
+      if (current === generation.current) setLoading(false);
+    }
+  }, [machineSignature]);
 
   useEffect(() => {
-    if (!enabled) { generation.current++; setReport(null); setLoading(false); return; }
+    if (!enabled) {
+      generation.current++;
+      cached.current.clear();
+      setReport(null);
+      setLoading(false);
+      return;
+    }
     if (!visible) return;
     void load(false);
     const timer = setInterval(() => void load(false), POLL_MS);
