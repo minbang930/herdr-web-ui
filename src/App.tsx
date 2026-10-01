@@ -512,12 +512,10 @@ export function App() {
   }, [splitState]);
 
   const applySplitPreset = useCallback((id: string) => {
-    setSplitPresets((current) => {
-      const preset = current.find((candidate) => candidate.id === id);
-      if (preset) setSplitState({ layout: preset.layout, slots: preset.slots.map((slot) => slot ? { ...slot } : null) });
-      return current;
-    });
-  }, []);
+    const preset = splitPresets.find((candidate) => candidate.id === id);
+    if (!preset) return;
+    setSplitState({ layout: preset.layout, slots: preset.slots.map((slot) => slot ? { ...slot } : null) });
+  }, [splitPresets]);
 
   const deleteSplitPreset = useCallback((id: string) => {
     setSplitPresets((current) => current.filter((preset) => preset.id !== id));
