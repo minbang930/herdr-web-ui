@@ -4,9 +4,10 @@ import { Clock, RefreshCw, TriangleAlert } from "lucide-react";
 import "./UsageMeters.css";
 
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
+import type { Machine } from "../../shared/machines.ts";
 import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, type UsageCount } from "../lib/settings.ts";
-import { formatPercent, formatResetIn, HIGH_PERCENT, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, tightestWindow, usageName, useUsage, windowLabel } from "../lib/usage.ts";
+import { formatPercent, formatResetIn, HIGH_PERCENT, machineUsageName, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, tightestWindow, useUsage, windowLabel, type MachineProviderUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 
 /** chips the strip beside Settings holds before the rest fold into "+N" */
@@ -31,7 +32,7 @@ function isError(usage: ProviderUsage): boolean {
   return usage.problem === "expired" || usage.problem === "failed";
 }
 
-function Chip({ usage, count }: { usage: ProviderUsage; count: UsageCount }) {
+function Chip({ usage, count }: { usage: MachineProviderUsage; count: UsageCount }) {
   const window = tightestWindow(usage);
   return (
     <span className={`usage-chip${level(window)}${usage.problem ? " has-problem" : ""}`}>
@@ -42,15 +43,16 @@ function Chip({ usage, count }: { usage: ProviderUsage; count: UsageCount }) {
   );
 }
 
-function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; count: UsageCount }) {
+function Provider({ usage, now, count }: { usage: MachineProviderUsage; now: number; count: UsageCount }) {
   const t = useT();
   const name = PROVIDER_NAME[usage.id];
   const problem = problemText(t, usage);
   return (
-    <section className="usage-provider" aria-label={usageName(usage)}>
+    <section className="usage-provider" aria-label={machineUsageName(usage)}>
       <header className="usage-provider-head">
         <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
         <span className="usage-provider-name">{name}</span>
+        <span className="usage-machine" title={usage.machine_name}>{usage.machine_name}</span>
         {usage.plan && <span className="usage-plan">{usage.plan}</span>}
         {usage.account && <span className="usage-account" title={usage.account}>{usage.account}</span>}
       </header>
@@ -76,15 +78,14 @@ function Provider({ usage, now, count }: { usage: ProviderUsage; now: number; co
 }
 
 /**
- * The plan limits of the subscriptions signed in on the server's PC, beside Settings: per
- * provider its logo and the limit closest to running out; the whole strip opens every limit
- * with its reset time.
+ * Plan limits reported by every connected PC, beside Settings: per provider its logo and
+ * the limit closest to running out; the whole strip opens every limit with its reset time.
  */
-export function UsageMeters() {
+export function UsageMeters({ machines = [] }: { machines?: readonly Machine[] }) {
   const t = useT();
   const { settings } = useSettings();
   const footer = settings.showUsage && settings.usagePlacement === "footer";
-  const { report, loading, refresh } = useUsage(footer);
+  const { report, loading, refresh } = useUsage(footer, machines);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const rootRef = useRef<HTMLDivElement>(null);
@@ -125,7 +126,7 @@ export function UsageMeters() {
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
   const summary = shown.map((usage) => {
     const window = tightestWindow(usage);
-    return `${usageName(usage)} ${window ? meterText(window, count) : "—"}`;
+    return `${machineUsageName(usage)} ${window ? meterText(window, count) : "—"}`;
   }).join(", ");
 
   return (
@@ -163,11 +164,11 @@ export function UsageMeters() {
  * row per account with its logo, plan, the limit closest to running out and when it resets.
  * The panel opens every limit, as the strip's popover does.
  */
-export function UsagePanel() {
+export function UsagePanel({ machines = [] }: { machines?: readonly Machine[] }) {
   const t = useT();
   const { settings } = useSettings();
   const top = settings.showUsage && settings.usagePlacement === "top";
-  const { report, loading, refresh } = useUsage(top);
+  const { report, loading, refresh } = useUsage(top, machines);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const detailId = useId();
@@ -194,6 +195,7 @@ export function UsagePanel() {
               <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
               <span className="usage-panel-name">
                 {PROVIDER_NAME[usage.id]}
+                <span className="usage-machine" title={usage.machine_name}>{usage.machine_name}</span>
                 {usage.plan && <span className="usage-plan" title={usage.plan}>{usage.plan}</span>}
                 {/* two accounts of one provider are told apart by the account */}
                 {usage.account && <span className="usage-account" title={usage.account}>{usage.account}</span>}

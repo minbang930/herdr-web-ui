@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ProviderUsage, UsageWindow } from "../../shared/protocol.ts";
-import { formatPercent, formatResetIn, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
+import { formatPercent, formatResetIn, machineUsageKey, machineUsageName, mergeMachineUsage, meterPercent, meterText, moveInOrder, orderProviders, tightestWindow, usageName, windowLabel } from "./usage.ts";
 
 const NOW = Date.parse("2026-09-29T12:00:00Z");
 const window = (used_percent: number, kind: UsageWindow["kind"] = "week", scope: string | null = null): UsageWindow => ({ kind, scope, used_percent, resets_at: null });
@@ -63,5 +63,22 @@ describe("usage meters", () => {
     expect(windowLabel(window(1, "week", "Sonnet"))).toBe("Weekly · Sonnet");
     expect(windowLabel(window(1, "month", "Premium"))).toBe("Monthly · Premium");
     expect(windowLabel(window(1, "month", "Cursor models"))).toBe("Monthly · Cursor models");
+  });
+
+
+  it("combines usage from multiple PCs and namespaces account keys", () => {
+    const reports = new Map([
+      ["main", { providers: [provider("codex", [window(31, "session")], "me@example.com")] }],
+      ["vm", { providers: [provider("claude", [window(54, "week")], "me@example.com")] }],
+    ]);
+    const merged = mergeMachineUsage([{ id: "main", name: "Main" }, { id: "vm", name: "VM" }], reports);
+    expect(merged.providers.map((usage) => usage.key)).toEqual([
+      machineUsageKey("main", "codex:me@example.com"),
+      machineUsageKey("vm", "claude:me@example.com"),
+    ]);
+    expect(merged.providers.map((usage) => machineUsageName(usage))).toEqual([
+      "Codex · me@example.com · Main",
+      "Claude · me@example.com · VM",
+    ]);
   });
 });

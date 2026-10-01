@@ -26,9 +26,10 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
   return getJson<RemoteAccess>("/api/access");
 }
 
-/** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */
-export function fetchUsage(refresh = false): Promise<UsageReport> {
-  return getJson<UsageReport>(refresh ? "/api/usage?refresh=1" : "/api/usage");
+/** The sidebar's plan meters for one PC; `refresh` asks its providers again instead of the bridge's recent answer. */
+export function fetchUsage(refresh = false, machineId = "local"): Promise<UsageReport> {
+  const base = machinePath(machineId, "usage");
+  return getJson<UsageReport>(refresh ? `${base}?refresh=1` : base);
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {

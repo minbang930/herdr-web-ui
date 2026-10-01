@@ -133,6 +133,18 @@
   font-weight: var(--fw-semibold);
 }
 
+.usage-machine {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 8rem;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .usage-account {
   flex: 1 1 auto;
   min-width: 0;

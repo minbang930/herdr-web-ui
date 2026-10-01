@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
+import type { UsageReport } from "../shared/protocol.ts";
 
 // A remote bridge that answers like the local conversation route: an ETag, then 304 while unchanged.
 const asked: (string | null)[] = [];
@@ -11,6 +12,7 @@ const remote = Bun.serve({
     const path = new URL(request.url).pathname;
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
+    if (path === "/api/usage") return Response.json({ providers: [{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }] });
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
     if (ifNoneMatch === "\"v1\"") return new Response(null, { status: 304, headers: { etag: "\"v1\"" } });
@@ -49,6 +51,13 @@ it("forwards conversation images and complete output, while rejecting arbitrary 
   expect(output.status).toBe(200);
   expect(await output.text()).toBe("complete remote output");
   expect((await handleMachineRequest(new Request(`${base}/unknown`), manager)).status).toBe(404);
+});
+
+it("forwards a remote PC's subscription usage without exposing credentials", async () => {
+  const response = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/usage"), manager);
+  expect(response.status).toBe(200);
+  const body = await response.json() as UsageReport;
+  expect(body.providers).toEqual([{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }]);
 });
 
 it("refuses a path with an empty segment instead of forwarding it as another route", async () => {

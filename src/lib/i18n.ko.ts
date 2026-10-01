@@ -558,7 +558,6 @@ export const KO: Record<string, string> = {
   "Not sent. Reconnect and try again.": "전송하지 못했습니다. 다시 연결한 후 시도하세요.",
   "Not confirmed. Check the terminal before sending again.": "전송 여부를 확인하지 못했습니다. 다시 보내기 전에 터미널을 확인하세요.",
   // ---- subscription usage ----
-  "Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.": "설정 옆에 서버 PC의 AI 도구가 요금제를 얼마나 썼는지 표시합니다. 켜면 각 도구의 로그인 정보를 provider의 사용량 엔드포인트로 보내며, 여기서 토큰을 갱신하지는 않습니다.",
   "Accounts": "계정",
   "Show {name}": "{name} 표시",
   "{percent} left": "{percent} 남음",
@@ -608,4 +607,6 @@ export const KO: Record<string, string> = {
   "Drag any pane from any PC in the left sidebar.": "왼쪽 사이드바의 어느 PC에서든 페인을 끌어오세요.",
   "This pane is no longer available.": "이 페인은 더 이상 사용할 수 없습니다.",
   "This PC is not connected.": "이 PC가 연결되어 있지 않습니다.",
+  // ---- multi-PC usage ----
+  "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "연결된 모든 PC의 AI 요금제 사용량을 표시합니다. 켜면 각 PC가 자체 CLI 로그인 정보를 읽어 해당 제공자의 사용량 엔드포인트에 조회하며, 인증 정보는 그 PC 밖으로 나오지 않습니다.",
 };
