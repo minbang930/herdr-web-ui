@@ -654,12 +654,10 @@ export function PaneTerminal({
         // observe clients adopt the pty's grid; interact clients drive it and ignore this,
         // unless the grid is fixed: then nobody here drives it
         if (message.pane_id !== paneRef.current) return;
-        if (message.fixed) {
-          fixedGridRef.current = true;
-          fixedGeometryRef.current = { cols: message.cols, rows: message.rows };
-        }
+        if (message.fixed) fixedGridRef.current = true;
+        if (fixedGridRef.current) fixedGeometryRef.current = { cols: message.cols, rows: message.rows };
         if (!observeRef.current && !fixedGridRef.current) return;
-        if (!(message.fixed && fitFixedGridWidth()) && (term.cols !== message.cols || term.rows !== message.rows)) {
+        if (!(fixedGridRef.current && fitFixedGridWidth()) && (term.cols !== message.cols || term.rows !== message.rows)) {
           term.resize(message.cols, message.rows);
         }
         panned = false;
