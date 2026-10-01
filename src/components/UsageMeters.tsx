@@ -81,7 +81,7 @@ function Provider({ usage, now, count }: { usage: MachineProviderUsage; now: num
  * Plan limits reported by every connected PC, beside Settings: per provider its logo and
  * the limit closest to running out; the whole strip opens every limit with its reset time.
  */
-export function UsageMeters({ machines }: { machines: readonly Machine[] }) {
+export function UsageMeters({ machines = [] }: { machines?: readonly Machine[] }) {
   const t = useT();
   const { settings } = useSettings();
   const footer = settings.showUsage && settings.usagePlacement === "footer";
@@ -164,7 +164,7 @@ export function UsageMeters({ machines }: { machines: readonly Machine[] }) {
  * row per account with its logo, plan, the limit closest to running out and when it resets.
  * The panel opens every limit, as the strip's popover does.
  */
-export function UsagePanel({ machines }: { machines: readonly Machine[] }) {
+export function UsagePanel({ machines = [] }: { machines?: readonly Machine[] }) {
   const t = useT();
   const { settings } = useSettings();
   const top = settings.showUsage && settings.usagePlacement === "top";
