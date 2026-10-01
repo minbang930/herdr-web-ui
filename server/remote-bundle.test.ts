@@ -64,7 +64,7 @@ describe("remote bundle sources", () => {
   it("reuses a cached release bundle by checksum and never trusts a changed one", async () => {
     const { directory, manifest, bytes, sha256 } = fixture("linux-x64");
     // an unreachable release URL: only the cache can answer
-    writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { "linux-x64": { url: "https://bundles.invalid/bundle.tgz", sha256 } } }));
+    writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { "linux-x64": { url: "https://127.0.0.1:9/bundle.tgz", sha256 } } }));
     const cacheDir = join(directory, "cache"); mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, `${sha256}.tgz`), bytes);
     const options = { directory, manifest: "", cacheDir };
