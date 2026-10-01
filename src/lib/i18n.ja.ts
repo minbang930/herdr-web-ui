@@ -610,4 +610,6 @@ export const JA: Record<string, string> = {
   "Drag any pane from any PC in the left sidebar.": "左サイドバーの任意の PC からペインをドラッグしてください。",
   "This pane is no longer available.": "このペインは利用できなくなりました。",
   "This PC is not connected.": "この PC は接続されていません。",
+  // ---- multi-PC usage ----
+  "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "接続中のすべての PC で各 AI プランの使用量を表示します。有効にすると各 PC が自身の CLI サインインを読み、そのプロバイダーの使用量エンドポイントへ問い合わせます。認証情報がその PC の外へ出ることはありません。",
 };
