@@ -9,11 +9,11 @@ import { SHORTCUTS, formatKeys } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, useSettings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
-import type { MachineSettings } from "../../shared/machines.ts";
+import type { Machine, MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
+import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
+import { machineUsageName, moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, useUsage, type MachineProviderUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
@@ -28,6 +28,7 @@ export interface SettingsDialogProps {
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
   onEnableNotifications: () => Promise<boolean>;
+  machines: readonly Machine[];
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
@@ -42,7 +43,7 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
  * The accounts the plan meters know, in the strip's order, as one compact card: each row names the
  * account and carries its move up / move down and show / hide controls.
  */
-function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
+function UsageAccounts({ providers }: { providers: readonly MachineProviderUsage[] }) {
   const { settings, update } = useSettings();
   const t = useT();
   const ordered = orderProviders(providers, settings.usageOrder);
@@ -58,12 +59,13 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
       </div>
       <ol aria-labelledby="usage-accounts-title">
         {ordered.map((usage, index) => {
-          const name = usageName(usage);
+          const name = machineUsageName(usage);
           const hidden = settings.usageHidden.includes(usage.key);
           return (
             <li key={usage.key} className={`usage-accounts-row${hidden ? " is-hidden" : ""}`}>
               <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
               <span className="usage-accounts-name">{PROVIDER_NAME[usage.id]}</span>
+              <span className="usage-accounts-machine" title={usage.machine_name}>{usage.machine_name}</span>
               <span className="usage-accounts-account" title={usage.account ?? undefined}>{usage.account}</span>
               <span className="usage-accounts-actions">
                 <button type="button" className="icon-button" aria-label={t("Move {name} up", { name })} title={t("Move {name} up", { name })} disabled={index === 0} onClick={() => move(usage.key, -1)}><ChevronUp aria-hidden="true" /></button>
@@ -88,10 +90,10 @@ function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
   );
 }
 
-export function SettingsDialog({ open, onClose, updates, auth, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, updates, auth, onEnableNotifications, machines }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   // the accounts to order and hide: the same report the meters show, from the server's cache
-  const usage = useUsage(open && settings.showUsage);
+  const usage = useUsage(open && settings.showUsage, machines);
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
@@ -274,7 +276,7 @@ export function SettingsDialog({ open, onClose, updates, auth, onEnableNotificat
           <section className="settings-section">
             <h3>{t("Subscription usage")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Show plan limits")}</span><span className="settings-description">{t("Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.")}</span></div>
+              <div><span className="settings-label">{t("Show plan limits")}</span><span className="settings-description">{t("Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.")}</span></div>
               <Toggle label={t("Show plan limits")} checked={settings.showUsage} onChange={(showUsage) => update({ showUsage })} />
             </div>
             {settings.showUsage && (
