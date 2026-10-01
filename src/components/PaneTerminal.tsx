@@ -29,6 +29,7 @@ import { terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
+import { fixedGridWidthDimensions } from "../lib/terminalFit.ts";
 
 // xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
 // must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
@@ -54,6 +55,8 @@ export interface PaneTerminalProps {
   view: PaneView;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
   autoSelected?: boolean;
+  /** Split view: a fixed/mirrored grid fits this browser cell horizontally but keeps its remote vertical geometry. */
+  fitFixedWidthOnly?: boolean;
   /** xterm font size (settings) */
   terminalFontSize: number;
   /** the resolved UI theme: the xterm theme object mirrors it */
@@ -98,6 +101,7 @@ export function PaneTerminal({
   agentStatus,
   view,
   autoSelected = false,
+  fitFixedWidthOnly = false,
   terminalFontSize,
   theme,
   palette,
@@ -138,6 +142,28 @@ export function PaneTerminal({
   const observeRef = useRef(false);
   // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
   const fixedGridRef = useRef(false);
+  const fixedGeometryRef = useRef<{ cols: number; rows: number } | null>(null);
+  const fitFixedWidthOnlyRef = useRef(fitFixedWidthOnly);
+  fitFixedWidthOnlyRef.current = fitFixedWidthOnly;
+  const fitFixedGridWidth = useCallback((): boolean => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    const source = fixedGeometryRef.current;
+    const host = hostRef.current;
+    if (!fitFixedWidthOnlyRef.current || !fixedGridRef.current || !term || !fit || !source || !host) return false;
+    const proposed = (() => {
+      try {
+        return fit.proposeDimensions();
+      } catch {
+        return undefined;
+      }
+    })();
+    if (!proposed || proposed.cols < 1) return false;
+    const next = fixedGridWidthDimensions(source.cols, source.rows, proposed.cols);
+    if (term.cols !== next.cols || term.rows !== next.rows) term.resize(next.cols, next.rows);
+    host.toggleAttribute("data-fit-fixed-width", true);
+    return true;
+  }, []);
   const [observing, setObserving] = useState(false);
   const [secret, setSecret] = useState<{ pane: string; prompt: string } | null>(null);
   const secretRef = useRef<string | null>(null);
@@ -301,6 +327,7 @@ export function PaneTerminal({
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
+      host.toggleAttribute("data-fit-fixed-width", fixedGridRef.current && fitFixedWidthOnlyRef.current);
       const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
       if (!adopted() || panned || !screen) return;
       const row = screen.offsetHeight / term.rows;
@@ -628,8 +655,11 @@ export function PaneTerminal({
         // unless the grid is fixed: then nobody here drives it
         if (message.pane_id !== paneRef.current) return;
         if (message.fixed) fixedGridRef.current = true;
+        if (fixedGridRef.current) fixedGeometryRef.current = { cols: message.cols, rows: message.rows };
         if (!observeRef.current && !fixedGridRef.current) return;
-        if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
+        if (!(fixedGridRef.current && fitFixedGridWidth()) && (term.cols !== message.cols || term.rows !== message.rows)) {
+          term.resize(message.cols, message.rows);
+        }
         panned = false;
         followCursor();
       } else if (message.type === "error") {
@@ -706,6 +736,7 @@ export function PaneTerminal({
         // the grid belongs to the pty while observing, and to herdr when fixed: only the view moves
         // (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
+          if (fixedGridRef.current) fitFixedGridWidth();
           panned = false;
           followCursor();
           return;
@@ -827,7 +858,11 @@ export function PaneTerminal({
     term.options.theme = terminalTheme(theme, palette);
     if (term.options.fontSize !== terminalFontSize) {
       term.options.fontSize = terminalFontSize;
-      if (observeRef.current || fixedGridRef.current) return;
+      if (fixedGridRef.current) {
+        fitFixedGridWidth();
+        return;
+      }
+      if (observeRef.current) return;
       try {
         fitRef.current?.fit();
       } catch {
@@ -841,8 +876,14 @@ export function PaneTerminal({
   // the grid must re-fit when the lens switches back: the chat lens covered it, and a
   // resize while covered may have been skipped by a zero-size layout
   useEffect(() => {
-    if (chatView || observeRef.current || fixedGridRef.current) return;
+    if (chatView) return;
     const term = termRef.current;
+    if (fixedGridRef.current) {
+      fitFixedGridWidth();
+      if (!autoSelected) term?.focus();
+      return;
+    }
+    if (observeRef.current) return;
     try {
       fitRef.current?.fit();
     } catch {
@@ -851,7 +892,7 @@ export function PaneTerminal({
     const pane = paneRef.current;
     if (pane && term) socketRef.current?.resize(pane, term.cols, term.rows, true);
     if (!autoSelected) term?.focus();
-  }, [chatView]);
+  }, [chatView, fitFixedGridWidth]);
 
   // follow the selected pane
   useEffect(() => {
@@ -865,8 +906,10 @@ export function PaneTerminal({
     setHeld(false);
     setUnsupported(false);
     fixedGridRef.current = false;
+    fixedGeometryRef.current = null;
     // the next pane's grid is this browser's again unless it says otherwise (pane-geometry)
     hostRef.current?.toggleAttribute("data-adopted-grid", observeRef.current);
+    hostRef.current?.removeAttribute("data-fit-fixed-width");
     secretRef.current = null;
     setSecret(null);
     term.options.disableStdin = observeRef.current;
