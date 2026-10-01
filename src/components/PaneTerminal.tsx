@@ -151,12 +151,13 @@ export function PaneTerminal({
     const source = fixedGeometryRef.current;
     const host = hostRef.current;
     if (!fitFixedWidthOnlyRef.current || !fixedGridRef.current || !term || !fit || !source || !host) return false;
-    let proposed: ReturnType<FitAddon["proposeDimensions"]>;
-    try {
-      proposed = fit.proposeDimensions();
-    } catch {
-      return false;
-    }
+    const proposed = (() => {
+      try {
+        return fit.proposeDimensions();
+      } catch {
+        return undefined;
+      }
+    })();
     if (!proposed || proposed.cols < 1) return false;
     const next = fixedGridWidthDimensions(source.cols, source.rows, proposed.cols);
     if (term.cols !== next.cols || term.rows !== next.rows) term.resize(next.cols, next.rows);
