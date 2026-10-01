@@ -562,7 +562,6 @@ export const ZH: Record<string, string> = {
   "Not sent. Reconnect and try again.": "未发送。请重新连接后重试。",
   "Not confirmed. Check the terminal before sending again.": "未确认。重新发送前请检查终端。",
   // ---- subscription usage ----
-  "Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.": "在设置旁显示服务器电脑上的 AI 工具各计划的用量。开启后会将其登录信息发送到各提供商的用量端点，此处不会刷新令牌。",
   "Accounts": "账户",
   "Show {name}": "显示 {name}",
   "{percent} left": "剩余 {percent}",
