@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 
 import { handleMachineRequest } from "./machine-api.ts";
 import type { MachineManager } from "./machines.ts";
+import type { UsageReport } from "../shared/protocol.ts";
 
 // A remote bridge that answers like the local conversation route: an ETag, then 304 while unchanged.
 const asked: (string | null)[] = [];
@@ -55,7 +56,7 @@ it("forwards conversation images and complete output, while rejecting arbitrary 
 it("forwards a remote PC's subscription usage without exposing credentials", async () => {
   const response = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/usage"), manager);
   expect(response.status).toBe(200);
-  const body = await response.json() as { providers: Array<{ id: string; account: string }> };
+  const body = await response.json() as UsageReport;
   expect(body.providers).toEqual([{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }]);
 });
 
