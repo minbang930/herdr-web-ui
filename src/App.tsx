@@ -444,7 +444,7 @@ export function App() {
   const changeSplitLayout = useCallback((layout: SplitLayout) => {
     setSplitState((current) => {
       const next = resizeSplitState(current, layout);
-      if (layout !== "single" && next.slots.every((slot) => slot === null) && selectedPaneId !== null) {
+      if (layout !== "single" && !next.slots.some((slot) => slot !== null) && selectedPaneId !== null) {
         next.slots[0] = { machineId: selectedMachineId, paneId: selectedPaneId, view };
       }
       return next;
