@@ -217,7 +217,11 @@
     gap: var(--space-1);
   }
 
-  .split-preset-select,
+  .split-preset-select {
+    min-width: 5.5rem;
+    max-width: 7rem;
+  }
+
   .split-preset-action {
     display: none;
   }
