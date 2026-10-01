@@ -36,6 +36,13 @@
   overflow: auto;
 }
 
+/* Split view can locally reflow a fixed mirrored grid to the cell width. Its source PC still
+   owns the real PTY height, so keep vertical scrolling but never expose horizontal scrolling. */
+.pane-terminal[data-adopted-grid][data-fit-fixed-width] {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .pane-terminal .xterm {
   padding: var(--space-2) var(--space-2) 0;
 }
