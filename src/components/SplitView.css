@@ -1,0 +1,236 @@
+.split-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.split-layout-switch {
+  display: inline-flex;
+  align-items: center;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.split-layout-switch .icon-button {
+  border: 0;
+  border-radius: 0;
+}
+
+.split-layout-switch .icon-button[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
+.split-preset-select {
+  min-width: 9rem;
+  max-width: 13rem;
+  height: var(--control-h);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-strong);
+  padding: 0 var(--space-2);
+}
+
+.split-preset-action {
+  width: var(--control-h);
+  height: var(--control-h);
+}
+
+.split-host {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.split-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: var(--hairline);
+  background: var(--border);
+}
+
+.split-grid[data-layout="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.split-grid[data-layout="4"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.split-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-panel);
+  position: relative;
+  outline: 0 solid transparent;
+  transition: outline-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+
+.split-cell.is-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--bg-elevated);
+}
+
+.split-cell-header {
+  flex: 0 0 auto;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border-bottom: var(--hairline) solid var(--border);
+  background: var(--bg-panel);
+}
+
+.split-cell-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--text-strong);
+}
+
+.split-cell-title-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--lh-tight);
+}
+
+.split-cell-primary,
+.split-cell-secondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.split-cell-primary {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.split-cell-secondary {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.split-cell-connection {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: var(--text-dim);
+}
+
+.split-cell-connection.is-live {
+  background: var(--status-done);
+}
+
+.split-cell-connection.is-offline {
+  background: var(--status-blocked);
+}
+
+.split-cell-view {
+  flex: 0 0 auto;
+}
+
+.split-cell-view button {
+  min-width: 34px;
+  padding: 0 var(--space-2);
+}
+
+.split-cell-clear {
+  flex: 0 0 auto;
+}
+
+.split-cell-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.split-cell-body .terminal-host {
+  width: 100%;
+  height: 100%;
+}
+
+.split-empty,
+.split-unavailable {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+}
+
+.split-empty-inner {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 22rem;
+}
+
+.split-empty strong {
+  color: var(--text-strong);
+}
+
+.pane-select[draggable="true"] {
+  cursor: grab;
+}
+
+.pane-select[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 900px) {
+  .split-grid[data-layout="2"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .split-preset-select {
+    max-width: 8rem;
+    min-width: 6.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .split-controls {
+    gap: var(--space-1);
+  }
+
+  .split-preset-select {
+    min-width: 5.5rem;
+    max-width: 7rem;
+  }
+
+  .split-preset-action {
+    display: none;
+  }
+
+  .split-cell-header {
+    min-height: 34px;
+  }
+
+  .split-cell-secondary {
+    display: none;
+  }
+}

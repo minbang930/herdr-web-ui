@@ -41,6 +41,8 @@ import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
+import { SplitViewControls, SplitWorkspace, rememberSplitSlotView } from "./components/SplitView.tsx";
+import { newPresetId, readSplitPresets, readSplitState, resizeSplitState, writeSplitPresets, writeSplitState, type SplitLayout, type SplitPreset, type SplitSlot } from "./lib/splitView.ts";
 
 const APP_TITLE = "herdr web ui";
 const POLL_MS = 5000;
@@ -171,6 +173,11 @@ export function App() {
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [view, setViewState] = useState<PaneView>("terminal");
+  const [splitState, setSplitState] = useState(readSplitState);
+  const [splitPresets, setSplitPresets] = useState<SplitPreset[]>(readSplitPresets);
+  const splitMode = splitState.layout !== "single";
+  useEffect(() => writeSplitState(splitState), [splitState]);
+  useEffect(() => writeSplitPresets(splitPresets), [splitPresets]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
@@ -178,6 +185,9 @@ export function App() {
   const viewFile = useCallback((path: string) => {
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
   }, [openFile, selectedPaneId, selectedMachineId]);
+  const viewSplitFile = useCallback((machineId: string, paneId: string, path: string) => {
+    openFile({ path, paneId, machineId });
+  }, [openFile]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -431,6 +441,86 @@ export function App() {
     setDrawerOpen(false);
   }, []);
 
+  const changeSplitLayout = useCallback((layout: SplitLayout) => {
+    setSplitState((current) => {
+      const next = resizeSplitState(current, layout);
+      if (layout !== "single" && !next.slots.some((slot) => slot !== null) && selectedPaneId !== null) {
+        next.slots[0] = { machineId: selectedMachineId, paneId: selectedPaneId, view };
+      }
+      return next;
+    });
+  }, [selectedMachineId, selectedPaneId, view]);
+
+  const assignSplitSlot = useCallback((index: number, machineId: string, paneId: string) => {
+    const machine = machinesRef.current.find((candidate) => candidate.id === machineId);
+    const pane = machine?.snapshot?.panes.find((candidate) => candidate.pane_id === paneId) ?? null;
+    const herdr = machine?.herdr;
+    const terminalAttach = herdr?.terminal_attach !== false || herdr?.terminal_mirror === true;
+    const nextView = storedView(paneId, machineId, pane ? pane.agent !== null : null, terminalAttach);
+    setSplitState((current) => {
+      if (current.layout === "single") return current;
+      const next = resizeSplitState(current, current.layout);
+      const slots = [...next.slots];
+      for (let slotIndex = 0; slotIndex < slots.length; slotIndex += 1) {
+        const slot = slots[slotIndex];
+        if (slot?.machineId === machineId && slot.paneId === paneId) slots[slotIndex] = null;
+      }
+      if (index >= 0 && index < slots.length) slots[index] = { machineId, paneId, view: nextView };
+      return { ...next, slots };
+    });
+    selectTarget(machineId, paneId);
+  }, [selectTarget]);
+
+  const clearSplitSlot = useCallback((index: number) => {
+    setSplitState((current) => {
+      const slots = [...current.slots];
+      if (index >= 0 && index < slots.length) slots[index] = null;
+      return { ...current, slots };
+    });
+  }, []);
+
+  const changeSplitSlotView = useCallback((index: number, nextView: PaneView) => {
+    setSplitState((current) => {
+      const slots = [...current.slots];
+      const slot = slots[index];
+      if (!slot) return current;
+      const nextSlot: SplitSlot = { ...slot, view: nextView };
+      slots[index] = nextSlot;
+      rememberSplitSlotView(nextSlot, nextView);
+      return { ...current, slots };
+    });
+  }, []);
+
+  const saveSplitPreset = useCallback((name: string) => {
+    if (splitState.layout === "single") return;
+    const normalizedName = name.trim();
+    if (!normalizedName) return;
+    setSplitPresets((current) => {
+      const existing = current.find((preset) => preset.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase());
+      if (existing) {
+        return current.map((preset) => preset.id === existing.id
+          ? { ...preset, name: normalizedName, layout: splitState.layout, slots: splitState.slots.map((slot) => slot ? { ...slot } : null) }
+          : preset);
+      }
+      return [...current, {
+        id: newPresetId(),
+        name: normalizedName,
+        layout: splitState.layout,
+        slots: splitState.slots.map((slot) => slot ? { ...slot } : null),
+      }];
+    });
+  }, [splitState]);
+
+  const applySplitPreset = useCallback((id: string) => {
+    const preset = splitPresets.find((candidate) => candidate.id === id);
+    if (!preset) return;
+    setSplitState({ layout: preset.layout, slots: preset.slots.map((slot) => slot ? { ...slot } : null) });
+  }, [splitPresets]);
+
+  const deleteSplitPreset = useCallback((id: string) => {
+    setSplitPresets((current) => current.filter((preset) => preset.id !== id));
+  }, []);
+
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
 
@@ -440,7 +530,7 @@ export function App() {
   }, []);
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
-  useScreenWakeLock(settings.keepScreenOn && locked === false && selectedPane !== null);
+  useScreenWakeLock(settings.keepScreenOn && locked === false && (selectedPane !== null || splitMode));
   const selectedWorkspace = selectedPane
     ? (snapshot?.workspaces.find((workspace) => workspace.workspace_id === selectedPane.workspace_id) ?? null)
     : null;
@@ -490,8 +580,8 @@ export function App() {
   const bellVisible = notifications !== "unsupported" && notifications !== "denied";
 
   useEffect(() => {
-    document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
-  }, [selectedTitle]);
+    document.title = splitMode ? `${t("Split view")} · herdr` : selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
+  }, [selectedTitle, splitMode, t]);
 
   const actions = useMemo<AppActions>(
     () => ({
@@ -581,7 +671,9 @@ export function App() {
         >
           <PanelLeft />
         </button>
-        {selectedPane ? (
+        {splitMode ? (
+          <><Brand /><span className="machine-context-name">{t("Split view")}</span></>
+        ) : selectedPane ? (
           <div className="context" title={`${selectedWorkspace?.label ?? selectedPane.workspace_id} › ${selectedTitle}`}>
             <div className="context-title">
               {selectedAgent && <AgentMark agent={selectedAgent} size={18} />}
@@ -603,7 +695,15 @@ export function App() {
         ) : (
           <><Brand /><span className="machine-context-name">{selectedMachine?.name ?? selectedMachineId}</span></>
         )}
-        {selectedPane && (
+        <SplitViewControls
+          layout={splitState.layout}
+          presets={splitPresets}
+          onLayoutChange={changeSplitLayout}
+          onApplyPreset={applySplitPreset}
+          onSavePreset={saveSplitPreset}
+          onDeletePreset={deleteSplitPreset}
+        />
+        {!splitMode && selectedPane && (
           <div className="segmented view-switch" role="group" aria-label="Pane view">
             <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title={t("Chat transcript (⌘⇧J)")}>
               <MessageSquare />
@@ -617,15 +717,15 @@ export function App() {
           </div>
         )}
         <div className="header-meta">
-          <span
+          {!splitMode && <span
             className={`conn ${connected ? "conn-live" : "conn-reconnecting"}`}
             role="status"
             title={targetHerdr ? t("herdr {version} · protocol {protocol}", { version: targetHerdr.version, protocol: targetHerdr.protocol }) : undefined}
           >
             <span className="conn-dot" aria-hidden="true" />
             <span className="conn-text">{t(connected ? "live" : outputStopped ? "disconnected" : "reconnecting")}</span>
-          </span>
-          {!targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>}
+          </span>}
+          {!splitMode && !targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>}
           {selectedPane && (
             <button type="button" className="icon-button files-button" aria-label={t("Browse files")} title={t("Browse files")} onClick={() => setFilesOpen(true)}>
               <FolderOpen />
@@ -664,27 +764,44 @@ export function App() {
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
 
-        {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
-        <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
-        <main className="terminal-host">
-          <PaneTerminal
-            key={selectedMachineId}
-            paneId={selectedPane?.restore_error ? null : selectedPaneId}
-            restoreError={selectedPane?.restore_error ?? null}
-            agent={selectedAgent}
-            agentStatus={selectedPane?.agent_status}
-            view={view}
-            autoSelected={autoSelected}
+        {splitMode ? (
+          <SplitWorkspace
+            machines={machines}
+            layout={splitState.layout as Exclude<SplitLayout, "single">}
+            slots={splitState.slots}
             terminalFontSize={settings.terminalFontSize}
             theme={resolvedTheme}
             palette={settings.palette}
-            role={role}
-            onRoleAck={setRole}
-            onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
+            onAssign={assignSplitSlot}
+            onClear={clearSplitSlot}
+            onViewChange={changeSplitSlotView}
+            onActivate={selectTarget}
             onServerMessage={handleServerMessage}
+            onOpenFile={viewSplitFile}
           />
-        </main>
-        </OpenFileContext.Provider>
+        ) : (
+          /* a file path in the chat opens in the viewer, relative to the selected pane's folder */
+          <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
+          <main className="terminal-host">
+            <PaneTerminal
+              key={selectedMachineId}
+              paneId={selectedPane?.restore_error ? null : selectedPaneId}
+              restoreError={selectedPane?.restore_error ?? null}
+              agent={selectedAgent}
+              agentStatus={selectedPane?.agent_status}
+              view={view}
+              autoSelected={autoSelected}
+              terminalFontSize={settings.terminalFontSize}
+              theme={resolvedTheme}
+              palette={settings.palette}
+              role={role}
+              onRoleAck={setRole}
+              onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
+              onServerMessage={handleServerMessage}
+            />
+          </main>
+          </OpenFileContext.Provider>
+        )}
       </div>
 
       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
