@@ -608,4 +608,6 @@ export const KO: Record<string, string> = {
   "Drag any pane from any PC in the left sidebar.": "왼쪽 사이드바의 어느 PC에서든 페인을 끌어오세요.",
   "This pane is no longer available.": "이 페인은 더 이상 사용할 수 없습니다.",
   "This PC is not connected.": "이 PC가 연결되어 있지 않습니다.",
+  // ---- multi-PC usage ----
+  "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "연결된 모든 PC의 AI 요금제 사용량을 표시합니다. 켜면 각 PC가 자체 CLI 로그인 정보를 읽어 해당 제공자의 사용량 엔드포인트에 조회하며, 인증 정보는 그 PC 밖으로 나오지 않습니다.",
 };
