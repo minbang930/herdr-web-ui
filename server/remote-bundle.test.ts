@@ -63,15 +63,30 @@ describe("remote bundle sources", () => {
 
   it("reuses a cached release bundle by checksum and never trusts a changed one", async () => {
     const { directory, manifest, bytes, sha256 } = fixture("linux-x64");
-    // an unreachable release URL: only the cache can answer
-    writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { "linux-x64": { url: "https://127.0.0.1:9/bundle.tgz", sha256 } } }));
+    const unreachable = "https://bundles.invalid/bundle.tgz";
+    writeFileSync(manifest, JSON.stringify({ version: REMOTE_BUNDLE_VERSION, assets: { "linux-x64": { url: unreachable, sha256 } } }));
     const cacheDir = join(directory, "cache"); mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, `${sha256}.tgz`), bytes);
     const options = { directory, manifest: "", cacheDir };
     const cached = await bundleFile("linux-x64", new AbortController().signal, options);
     expect(cached.path).toBe(join(cacheDir, `${sha256}.tgz`));
+
+    // Do not make this unit test depend on DNS/connect timeouts. Once the cached bytes are
+    // tampered with, bundleFile must reject them and attempt a download; make that attempt
+    // fail immediately and deterministically.
     writeFileSync(join(cacheDir, `${sha256}.tgz`), "tampered");
-    await expect(bundleFile("linux-x64", new AbortController().signal, options)).rejects.toThrow();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === unreachable) throw new Error("test download unavailable");
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    try {
+      await expect(bundleFile("linux-x64", new AbortController().signal, options)).rejects.toThrow("test download unavailable");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
     await expect(bundleFile("linux-x64", new AbortController().signal, { directory, manifest: "" })).rejects.toThrow("No bundle cache directory");
   });
 });
