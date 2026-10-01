@@ -612,4 +612,6 @@ export const ZH: Record<string, string> = {
   "Drag any pane from any PC in the left sidebar.": "从左侧边栏中的任意电脑拖入窗格。",
   "This pane is no longer available.": "此窗格已不可用。",
   "This PC is not connected.": "此电脑未连接。",
+  // ---- multi-PC usage ----
+  "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "显示所有已连接电脑上的 AI 套餐用量。开启后，每台电脑会读取自己的 CLI 登录信息并查询对应提供商的用量端点；凭据不会离开该电脑。",
 };
