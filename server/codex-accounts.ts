@@ -2,8 +2,9 @@
 /**
  * Local Codex account slots.
  *
- * Credentials never leave this PC. A saved account is a private copy of Codex auth.json
- * under the web bridge state directory. Switching stops idle Codex TUIs, swaps auth.json,
+ * A saved account is a private copy of Codex auth.json under the web bridge state directory.
+ * Cross-PC copies are end-to-end encrypted to a one-time destination key, so plaintext auth
+ * never reaches the browser or connection server. Switching stops idle Codex TUIs, swaps auth.json,
  * restarts the Codex app-server daemon when one is running, then resumes the same recorded
  * sessions in the same herdr panes.
  *
