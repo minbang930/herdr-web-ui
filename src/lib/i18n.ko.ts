@@ -623,4 +623,9 @@ export const KO: Record<string, string> = {
   "The current Codex auth file is not a ChatGPT sign-in.": "현재 Codex 인증 파일은 ChatGPT 로그인 정보가 아닙니다.",
   "Sign in to Codex on this PC once, then save the current account here.": "이 PC에서 Codex에 한 번 로그인한 뒤 현재 계정을 여기에 저장하세요.",
   "Save each Codex account once. After that, switching does not require browser login.": "각 Codex 계정을 한 번씩 저장하면 이후에는 브라우저 로그인 없이 전환할 수 있습니다.",
+  "Import from another PC": "다른 PC에서 가져오기",
+  "Looking for Codex accounts on other PCs…": "다른 PC의 Codex 계정을 찾는 중…",
+  "No new Codex accounts found on connected PCs.": "연결된 다른 PC에서 가져올 새 Codex 계정을 찾지 못했습니다.",
+  "Importing…": "가져오는 중…",
+  "Import": "가져오기",
 };
