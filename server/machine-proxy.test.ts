@@ -75,6 +75,15 @@ it("forwards Codex account controls to the selected PC", async () => {
   expect(changed.status).toBe(200);
 });
 
+it("does not expose the internal Codex credential-transfer endpoint through the PC proxy", async () => {
+  const response = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/codex/transfer", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+    body: JSON.stringify({ action: "export_sealed", account_id: "x", public_key: "attacker-key" }),
+  }), manager);
+  expect(response.status).toBe(404);
+});
+
 it("refuses a path with an empty segment instead of forwarding it as another route", async () => {
   const before = asked.length;
   for (const path of ["pc1//fs/file?path=%2Fetc%2Fhostname", "pc1/fs//file?path=%2Fetc%2Fhostname", "pc1//session"]) {
