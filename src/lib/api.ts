@@ -15,6 +15,8 @@ import type {
   PromptAnswer,
   PushKey,
   RemoteAccess,
+  SessionCapabilities,
+  SessionRunLevel,
   SessionSnapshot,
   SlashCommand,
   UsageReport,
@@ -33,6 +35,10 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 export function fetchUsage(refresh = false, machineId = "local"): Promise<UsageReport> {
   const base = machinePath(machineId, "usage");
   return getJson<UsageReport>(refresh ? `${base}?refresh=1` : base);
+}
+
+export function fetchSessionCapabilities(machineId = "local"): Promise<SessionCapabilities> {
+  return getJson<SessionCapabilities>(machinePath(machineId, "session-capabilities"));
 }
 
 export function fetchCodexAccounts(machineId = "local"): Promise<CodexAccountState> {
@@ -353,6 +359,7 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
 export interface CreateWorkspaceRequest {
   cwd?: string | null;
   label?: string | null;
+  run_level?: SessionRunLevel;
   agent?: { kind: string; name?: string; args?: string[] } | null;
 }
 
