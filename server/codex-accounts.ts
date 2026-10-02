@@ -166,8 +166,8 @@ export class CodexAccountService {
   constructor(
     stateDir: string,
     codexHome?: string,
-    private readonly runtime: CodexAccountRuntime = defaultRuntime,
     private readonly onChanged: () => void = () => {},
+    private readonly runtime: CodexAccountRuntime = defaultRuntime,
   ) {
     this.codexHome = liveCodexHome(codexHome);
     this.accountsDir = join(stateDir, "codex-accounts");
