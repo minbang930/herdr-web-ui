@@ -630,4 +630,10 @@ export const JA: Record<string, string> = {
   "No new Codex accounts found on connected PCs.": "接続中の他の PC に新しい Codex アカウントが見つかりません。",
   "Importing…": "取り込み中…",
   "Import": "取り込む",
+  // ---- Windows session privileges ----
+  "Privileges": "権限",
+  "Standard": "標準",
+  "Administrator": "管理者",
+  "Recommended. Codex background daemon and normal development tools run without elevation.": "推奨。Codex のバックグラウンドデーモンと通常の開発ツールを昇格なしで実行します。",
+  "Use only when this session needs administrator rights.": "このセッションに管理者権限が必要な場合のみ使用してください。",
 };
