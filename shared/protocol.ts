@@ -164,6 +164,40 @@ export interface UsageReport {
   readonly providers: readonly ProviderUsage[];
 }
 
+/** A Codex ChatGPT account whose auth is stored only on the PC that owns it. */
+export interface CodexManagedAccount {
+  /** opaque stable id; credentials and raw provider account ids never reach the browser */
+  readonly id: string;
+  readonly email: string | null;
+  readonly plan: string | null;
+  readonly active: boolean;
+  readonly saved_at: string;
+}
+
+/** GET /api/codex/accounts: local account-switching state for this PC. */
+export interface CodexAccountState {
+  /** file-backed auth can be safely saved/swapped on this PC */
+  readonly supported: boolean;
+  /** why switching is unavailable; null when supported */
+  readonly reason: "not_signed_in" | "non_file_store" | "unsupported_auth" | null;
+  /** active ChatGPT account even before it has been saved as a managed slot */
+  readonly current: {
+    readonly id: string;
+    readonly email: string | null;
+    readonly plan: string | null;
+    readonly saved: boolean;
+  } | null;
+  readonly accounts: readonly CodexManagedAccount[];
+}
+
+/** POST /api/codex/accounts { action:"switch" }: the account changed and these panes were resumed. */
+export interface CodexAccountSwitchResult {
+  readonly state: CodexAccountState;
+  readonly resumed_panes: readonly string[];
+  /** non-fatal daemon/pane recovery notes; the account itself was switched */
+  readonly warnings: readonly string[];
+}
+
 /** How a request got in, when it did. */
 export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
 /** Why a request did not. */
