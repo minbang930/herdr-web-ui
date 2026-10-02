@@ -88,6 +88,10 @@ describe("Windows session run levels", () => {
     expect(helper).toContain("TokenLinkedToken");
     expect(helper).toContain("Process.GetProcessesByName(\"explorer\")");
     expect(helper).toContain("TokenElevationTypeLimited");
+    expect(helper).toContain("CreateEnvironmentBlock");
+    expect(helper).toContain("DestroyEnvironmentBlock");
+    expect(helper).toContain("\"APPDATA\"");
+    expect(helper).toContain("BuildEnvironmentBlock(primaryToken)");
     expect(helper).not.toContain("private static extern bool CreateRestrictedToken(");
     expect(helper).not.toContain("private const uint LUA_TOKEN");
     expect(helper).toContain("TokenElevation");

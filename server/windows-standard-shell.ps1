@@ -168,6 +168,16 @@ namespace HerdrWebUi
             out IntPtr token
         );
 
+        [DllImport("userenv.dll", SetLastError = true)]
+        private static extern bool CreateEnvironmentBlock(
+            out IntPtr environment,
+            IntPtr token,
+            bool inherit
+        );
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        private static extern bool DestroyEnvironmentBlock(IntPtr environment);
+
         [DllImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
         private static extern bool GetTokenInformationLinked(
             IntPtr token,
@@ -351,17 +361,79 @@ namespace HerdrWebUi
             return result.ToString();
         }
 
-        // Preserve HERDR_SOCKET_PATH / HERDR_PANE_ID / PATH and the rest of the pane environment.
-        private static IntPtr BuildEnvironmentBlock()
+        private static SortedDictionary<string, string> ReadEnvironmentBlock(IntPtr environment)
         {
             var values = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            int offset = 0;
+            while (true)
+            {
+                string entry = Marshal.PtrToStringUni(IntPtr.Add(environment, offset));
+                if (String.IsNullOrEmpty(entry))
+                    break;
+
+                int separator = entry.IndexOf('=', 1);
+                if (separator > 0)
+                    values[entry.Substring(0, separator)] = entry.Substring(separator + 1);
+
+                offset += (entry.Length + 1) * 2;
+            }
+            return values;
+        }
+
+        // Start from the environment belonging to the standard token, not the elevated
+        // OpenSSH/WMI parent. In particular this keeps APPDATA / LOCALAPPDATA / USERPROFILE
+        // aligned with the desktop token, so CLIs such as gh resolve the same config and
+        // credential-store context as a normal desktop terminal. Then carry forward the
+        // pane-specific environment (HERDR_*, PATH, CODEX_HOME, etc.) without overwriting
+        // those profile identity variables.
+        private static IntPtr BuildEnvironmentBlock(IntPtr token)
+        {
+            IntPtr userEnvironment = IntPtr.Zero;
+            if (!CreateEnvironmentBlock(out userEnvironment, token, false))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateEnvironmentBlock failed");
+
+            SortedDictionary<string, string> values;
+            try
+            {
+                values = ReadEnvironmentBlock(userEnvironment);
+            }
+            finally
+            {
+                DestroyEnvironmentBlock(userEnvironment);
+            }
+
+            var profileScoped = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "APPDATA",
+                "LOCALAPPDATA",
+                "USERPROFILE",
+                "HOMEDRIVE",
+                "HOMEPATH",
+                "HOME",
+                "USERNAME",
+                "USERDOMAIN",
+                "USERDOMAIN_ROAMINGPROFILE",
+                "LOGONSERVER",
+                "SESSIONNAME"
+            };
+
             foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process))
             {
                 var key = entry.Key as string;
                 var value = entry.Value as string;
-                if (!String.IsNullOrEmpty(key) && value != null)
+                if (String.IsNullOrEmpty(key) || value == null)
+                    continue;
+                if (!profileScoped.Contains(key))
+                    values[key] = value;
+                else if (!values.ContainsKey(key))
                     values[key] = value;
             }
+
+            string userProfile;
+            if ((!values.ContainsKey("HOME") || String.IsNullOrEmpty(values["HOME"]))
+                && values.TryGetValue("USERPROFILE", out userProfile)
+                && !String.IsNullOrEmpty(userProfile))
+                values["HOME"] = userProfile;
 
             var block = new StringBuilder();
             foreach (var entry in values)
@@ -440,7 +512,7 @@ namespace HerdrWebUi
 
                 var startup = new STARTUPINFO();
                 startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
-                environment = BuildEnvironmentBlock();
+                environment = BuildEnvironmentBlock(primaryToken);
 
                 // A linked token belongs to the caller's logon session, so normal inherited-handle
                 // creation keeps Herdr's ConPTY. A desktop token may belong to another Terminal
