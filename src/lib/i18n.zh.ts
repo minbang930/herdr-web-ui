@@ -632,4 +632,10 @@ export const ZH: Record<string, string> = {
   "No new Codex accounts found on connected PCs.": "已连接的其他电脑上没有发现可导入的新 Codex 账户。",
   "Importing…": "正在导入…",
   "Import": "导入",
+  // ---- Windows session privileges ----
+  "Privileges": "权限",
+  "Standard": "标准",
+  "Administrator": "管理员",
+  "Recommended. Codex background daemon and normal development tools run without elevation.": "推荐。Codex 后台守护进程和常规开发工具无需提升权限即可运行。",
+  "Use only when this session needs administrator rights.": "仅在此会话确实需要管理员权限时使用。",
 };
