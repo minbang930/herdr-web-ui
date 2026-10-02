@@ -208,6 +208,31 @@ async function waitForMarkerResult(
   throw new Error("timed out waiting for the standard Windows command");
 }
 
+async function paneWindowsElevation(paneId: string): Promise<boolean | null> {
+  if (await currentPaneShell(paneId) !== "powershell") return null;
+  const nonce = randomBytes(16).toString("hex");
+  const marker = "__HERDR_WEB_ELEVATION_" + nonce + "__";
+  const command = [
+    "$__n=" + psQuote(nonce),
+    "$__i=[Security.Principal.WindowsIdentity]::GetCurrent()",
+    "$__p=[Security.Principal.WindowsPrincipal]::new($__i)",
+    "$__e=if($__p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){1}else{0}",
+    "Write-Output ('__HERDR_WEB_ELEVATION_' + $__n + '__' + $__e)",
+  ].join("; ");
+  await paneSendText(paneId, command);
+  await Bun.sleep(40);
+  await paneSendKeys(paneId, ["Enter"]);
+  const result = await waitForMarkerResult(paneId, marker, 5000);
+  return result === 1;
+}
+
+export async function ensureWindowsStandardShell(paneId: string): Promise<void> {
+  const elevated = await paneWindowsElevation(paneId);
+  if (elevated === false) return;
+  if (elevated === null) throw new Error("the standard Windows session is not currently at its PowerShell prompt");
+  await enterWindowsStandardShell(paneId);
+}
+
 /**
  * Replaces a fresh Windows pane's inherited elevated shell with a child created from the
  * account's linked standard token. The outer shell exits as soon as the standard child exits,
@@ -251,6 +276,7 @@ export async function startAgentInWindowsStandardShell(
   args: string[] = [],
   timeoutMs = AGENT_START_TIMEOUT_MS,
 ): Promise<void> {
+  await ensureWindowsStandardShell(paneId);
   if (isShellAgentKind(kind)) {
     await startShellAgent(kind, paneId, args, { timeoutMs });
     return;
