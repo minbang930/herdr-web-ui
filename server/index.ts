@@ -56,7 +56,7 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
 import { CodexAccountService, handleCodexAccountRequest, handleCodexTransferRequest } from "./codex-accounts.ts";
-import { enterWindowsStandardShell, sessionCapabilities, startAgentInWindowsStandardShell } from "./windows-run-level.ts";
+import { enterWindowsStandardShell, sessionCapabilities, startAgentInWindowsStandardShell, WindowsRunLevelStore } from "./windows-run-level.ts";
 import { handleCodexCrossMachineTransfer } from "./codex-transfer.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
@@ -275,7 +275,15 @@ export function createServer(
   const stateDir = options.stateDir ?? defaultStateDir();
   const devices = new DeviceStore(stateDir);
   const usage = options.usage ?? new UsageService();
-  const codexAccounts = new CodexAccountService(stateDir, options.codexHome, () => usage.invalidate("codex"));
+  const windowsRunLevels = new WindowsRunLevelStore(stateDir);
+  const codexAccounts = new CodexAccountService(
+    stateDir,
+    options.codexHome,
+    () => usage.invalidate("codex"),
+    undefined,
+    (workspaceId) => windowsRunLevels.get(workspaceId),
+  );
+  if (process.platform === "win32") queueMicrotask(() => void windowsRunLevels.reapply());
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
@@ -991,9 +999,11 @@ export function createServer(
 
           if (runLevel !== undefined) {
             try {
+              windowsRunLevels.set(created.workspace.workspace_id, runLevel);
               await workspaceReportMetadata(created.workspace.workspace_id, { herdr_web_run_level: runLevel });
               if (runLevel === "standard") await enterWindowsStandardShell(created.root_pane.pane_id);
             } catch (error) {
+              windowsRunLevels.delete(created.workspace.workspace_id);
               await workspaceClose(created.workspace.workspace_id).catch(() => {});
               throw error;
             }
@@ -1059,7 +1069,10 @@ export function createServer(
         try {
           if (pathname === "/api/workspace/rename") await workspaceRename(payload.workspace_id, payload.label as string);
           else if (pathname === "/api/workspace/move") await workspaceMove(payload.workspace_id, payload.insert_index as number);
-          else await workspaceClose(payload.workspace_id);
+          else {
+            await workspaceClose(payload.workspace_id);
+            windowsRunLevels.delete(payload.workspace_id);
+          }
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);
