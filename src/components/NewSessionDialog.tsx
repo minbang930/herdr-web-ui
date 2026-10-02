@@ -161,7 +161,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
                     disabled={fieldsDisabled}
                     onClick={() => setRunLevel(level)}
                   >
-                    {t(level === "standard" ? "Standard" : "Administrator")}
+                    {level === "standard" ? t("Standard") : t("Administrator")}
                   </button>
                 ))}
               </div>
