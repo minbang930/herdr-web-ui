@@ -329,43 +329,6 @@ export async function startAgentInWindowsStandardShell(
   await waitForAgent(paneId, kind, timeoutMs);
 }
 
-/**
- * Reload Codex auth from a standard-token pane. This avoids the Windows daemon refusing a
- * restart requested by the elevated bridge process. The full completion marker is assembled
- * by PowerShell, so it cannot be mistaken for the echoed command line.
- */
-export async function restartCodexDaemonInWindowsStandardShell(
-  paneId: string,
-  codexHome: string,
-  timeoutMs = 15_000,
-): Promise<string | null> {
-  await ensureWindowsStandardShell(paneId);
-  const codex = Bun.which("codex", { PATH: process.env["PATH"] ?? "" }) ?? "codex";
-  const nonce = randomBytes(16).toString("hex");
-  const marker = "__HERDR_WEB_CODEX_DAEMON_" + nonce + "__";
-  const command = [
-    "$__h=" + psQuote(codexHome),
-    "$__c=" + psQuote(codex),
-    "$__n=" + psQuote(nonce),
-    "$__old=$env:CODEX_HOME",
-    "$env:CODEX_HOME=$__h",
-    "& $__c app-server daemon restart",
-    "$__ec=$LASTEXITCODE",
-    "if($null -eq $__old){Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue}else{$env:CODEX_HOME=$__old}",
-    "Write-Output ('__HERDR_WEB_CODEX_DAEMON_' + $__n + '__' + $__ec)",
-  ].join("; ");
-  await paneSendText(paneId, command);
-  await Bun.sleep(40);
-  await paneSendKeys(paneId, ["Enter"]);
-  try {
-    const code = await waitForMarkerResult(paneId, marker, timeoutMs);
-    return code === 0 ? null : `Codex account switched, but the standard-token daemon restart exited with code ${code}.`;
-  } catch (error) {
-    return `Codex account switched, but the standard-token daemon restart did not finish: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
-
-
 export function workspaceRunLevel(
   snapshot: SessionSnapshot,
   pane: HerdrPane,
