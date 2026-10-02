@@ -627,4 +627,9 @@ export const ZH: Record<string, string> = {
   "The current Codex auth file is not a ChatGPT sign-in.": "当前 Codex 认证文件不是 ChatGPT 登录信息。",
   "Sign in to Codex on this PC once, then save the current account here.": "先在此电脑上登录一次 Codex，然后在这里保存当前账户。",
   "Save each Codex account once. After that, switching does not require browser login.": "每个 Codex 账户只需保存一次，之后切换时无需再通过浏览器登录。",
+  "Import from another PC": "从另一台电脑导入",
+  "Looking for Codex accounts on other PCs…": "正在查找其他电脑上的 Codex 账户…",
+  "No new Codex accounts found on connected PCs.": "已连接的其他电脑上没有发现可导入的新 Codex 账户。",
+  "Importing…": "正在导入…",
+  "Import": "导入",
 };
