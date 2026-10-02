@@ -185,6 +185,7 @@ export class CodexAccountService {
     codexHome?: string,
     private readonly onChanged: () => void = () => {},
     private readonly runtime: CodexAccountRuntime = defaultRuntime,
+    private readonly runLevelForWorkspace: (workspaceId: string) => SessionRunLevel | null = () => null,
   ) {
     this.codexHome = liveCodexHome(codexHome);
     this.accountsDir = join(stateDir, "codex-accounts");
@@ -388,7 +389,7 @@ export class CodexAccountService {
           paneId: pane.pane_id,
           name: pane.agent ?? "codex",
           sessionId,
-          runLevel: workspaceRunLevel(snapshot, pane),
+          runLevel: workspaceRunLevel(snapshot, pane, this.runLevelForWorkspace),
         };
       });
 
