@@ -42,6 +42,8 @@ if (-not (Test-HerdrWebElevated)) {
 if (-not ('HerdrWebUi.StandardProcess' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -58,6 +60,9 @@ namespace HerdrWebUi
         private const int SecurityImpersonation = 2;
         private const int TokenPrimary = 1;
         private const uint INFINITE = 0xffffffff;
+        private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+        private const int ERROR_PRIVILEGE_NOT_HELD = 1314;
+        private const uint LOGON_WITH_PROFILE = 0x00000001;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct TOKEN_LINKED_TOKEN
@@ -150,6 +155,19 @@ namespace HerdrWebUi
             out PROCESS_INFORMATION processInformation
         );
 
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessWithTokenW(
+            IntPtr token,
+            uint logonFlags,
+            string applicationName,
+            StringBuilder commandLine,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref STARTUPINFO startupInfo,
+            out PROCESS_INFORMATION processInformation
+        );
+
         private static string Quote(string value)
         {
             if (value.Length == 0)
@@ -189,12 +207,38 @@ namespace HerdrWebUi
             return result.ToString();
         }
 
+        // Keep HERDR_SOCKET_PATH / HERDR_PANE_ID / PATH and the rest of the pane's environment.
+        // Passing NULL here would rebuild a generic user environment and break Herdr's agent hooks.
+        private static IntPtr BuildEnvironmentBlock()
+        {
+            var values = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process))
+            {
+                var key = entry.Key as string;
+                var value = entry.Value as string;
+                if (!String.IsNullOrEmpty(key) && value != null)
+                    values[key] = value;
+            }
+
+            var block = new StringBuilder();
+            foreach (var entry in values)
+            {
+                block.Append(entry.Key);
+                block.Append('=');
+                block.Append(entry.Value);
+                block.Append('\0');
+            }
+            block.Append('\0');
+            return Marshal.StringToHGlobalUni(block.ToString());
+        }
+
         public static int Run(string file, string[] args, string cwd)
         {
             IntPtr currentToken = IntPtr.Zero;
             IntPtr linkedToken = IntPtr.Zero;
             IntPtr primaryToken = IntPtr.Zero;
             PROCESS_INFORMATION process = new PROCESS_INFORMATION();
+            IntPtr environment = IntPtr.Zero;
 
             try
             {
@@ -235,21 +279,40 @@ namespace HerdrWebUi
                 var startup = new STARTUPINFO();
                 startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
 
-                // With creationFlags=0, CreateProcessAsUser inherits the parent's console.
-                // That keeps the child inside herdr's existing ConPTY instead of opening a window.
-                if (!CreateProcessAsUserW(
+                environment = BuildEnvironmentBlock();
+
+                // No NEW_CONSOLE flag: the child stays inside herdr's existing ConPTY. Prefer
+                // CreateProcessAsUser; some administrator tokens do not carry its quota privilege,
+                // so ERROR_PRIVILEGE_NOT_HELD falls back to CreateProcessWithTokenW.
+                bool created = CreateProcessAsUserW(
                     primaryToken,
                     file,
                     commandLine,
                     IntPtr.Zero,
                     IntPtr.Zero,
                     true,
-                    0,
-                    IntPtr.Zero,
+                    CREATE_UNICODE_ENVIRONMENT,
+                    environment,
                     cwd,
                     ref startup,
-                    out process))
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessAsUserW failed");
+                    out process);
+                if (!created && Marshal.GetLastWin32Error() == ERROR_PRIVILEGE_NOT_HELD)
+                {
+                    process = new PROCESS_INFORMATION();
+                    commandLine = new StringBuilder(commandLine.ToString());
+                    created = CreateProcessWithTokenW(
+                        primaryToken,
+                        LOGON_WITH_PROFILE,
+                        file,
+                        commandLine,
+                        CREATE_UNICODE_ENVIRONMENT,
+                        environment,
+                        cwd,
+                        ref startup,
+                        out process);
+                }
+                if (!created)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the standard-token child process");
 
                 WaitForSingleObject(process.hProcess, INFINITE);
                 uint exitCode;
@@ -261,6 +324,7 @@ namespace HerdrWebUi
             {
                 if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
                 if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
+                if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
                 if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
                 if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
                 if (currentToken != IntPtr.Zero) CloseHandle(currentToken);
