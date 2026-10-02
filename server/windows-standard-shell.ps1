@@ -27,7 +27,7 @@ if (`$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   [Console]::Error.WriteLine('herdr-web-ui: requested a standard shell but the child token is still elevated')
   exit 125
 }
-Write-Output '$Marker'
+Write-Output '__HERDR_WEB_STANDARD_READY_$Marker'
 "@
 
 $childArgs = @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $bootstrap)
