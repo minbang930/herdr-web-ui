@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
-import { startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
+import { restartCodexDaemonInWindowsStandardShell, startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
 
 const ACCOUNT_ID_RE = /^[a-f0-9]{24}$/;
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
@@ -124,10 +124,13 @@ export interface CodexAccountRuntime {
   sendKeys(paneId: string, keys: string[]): Promise<void>;
   start(pane: ResumePane): Promise<void>;
   sleep(ms: number): Promise<void>;
-  restartDaemon(codexHome: string): Promise<string | null>;
+  restartDaemon(codexHome: string, standardPaneId?: string): Promise<string | null>;
 }
 
-async function restartCodexDaemon(codexHome: string): Promise<string | null> {
+async function restartCodexDaemon(codexHome: string, standardPaneId?: string): Promise<string | null> {
+  if (process.platform === "win32" && standardPaneId) {
+    return restartCodexDaemonInWindowsStandardShell(standardPaneId, codexHome);
+  }
   const binary = Bun.which("codex", { PATH: process.env["PATH"] ?? "" });
   if (!binary) return "Codex CLI was not found; existing background app-server processes may need a manual restart.";
   const env = { ...process.env, CODEX_HOME: codexHome };
@@ -155,7 +158,10 @@ const defaultRuntime: CodexAccountRuntime = {
       await startAgentInWindowsStandardShell("codex", pane.paneId, ["resume", pane.sessionId], 60_000);
       return;
     }
-    await agentStart({ name: pane.name, kind: "codex", paneId: pane.paneId, args: ["resume", pane.sessionId], timeoutMs: 60_000 });
+    const args = process.platform === "win32" && pane.runLevel === "admin"
+      ? ["--no-daemon", "resume", pane.sessionId]
+      : ["resume", pane.sessionId];
+    await agentStart({ name: pane.name, kind: "codex", paneId: pane.paneId, args, timeoutMs: 60_000 });
   },
   sleep: Bun.sleep,
   restartDaemon: restartCodexDaemon,
@@ -410,7 +416,8 @@ export class CodexAccountService {
 
       privateWrite(this.livePath(), target.raw);
       const warnings: string[] = [];
-      const daemonWarning = await this.runtime.restartDaemon(this.codexHome);
+      const standardPane = resumable.find((pane) => pane.runLevel === "standard");
+      const daemonWarning = await this.runtime.restartDaemon(this.codexHome, standardPane?.paneId);
       if (daemonWarning) warnings.push(daemonWarning);
 
       const resumed: string[] = [];
