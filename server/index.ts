@@ -283,7 +283,7 @@ export function createServer(
     undefined,
     (workspaceId) => windowsRunLevels.get(workspaceId),
   );
-  if (process.platform === "win32") queueMicrotask(() => void windowsRunLevels.reapply());
+  if (process.platform === "win32") queueMicrotask(() => void windowsRunLevels.reapply().catch(() => {}));
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
