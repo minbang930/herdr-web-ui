@@ -197,7 +197,7 @@ namespace HerdrWebUi
         private static string Quote(string value)
         {
             if (value.Length == 0)
-                return "\"\\"";
+                return new string('"', 2);
             if (value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '\"' }) < 0)
                 return value;
 
