@@ -155,6 +155,13 @@ export function canonicalWindowsAgentExecutable(kind: string): string | null {
   return WINDOWS_AGENT_EXECUTABLES[kind] ?? null;
 }
 
+export function windowsAgentArgs(kind: string, args: string[] = []): string[] {
+  // Codex's shared daemon has extra Windows elevation/job-object requirements that do not
+  // benefit a Herdr-owned interactive pane. Keep every Windows Herdr Codex process local to
+  // its pane so Standard and Administrator sessions behave the same and resume deterministically.
+  return kind === "codex" ? ["--no-daemon", ...args] : args;
+}
+
 function appendRootExit(shell: PaneShell, command: string): string {
   if (shell === "powershell") return command + "; exit $LASTEXITCODE";
   if (shell === "cmd") return command + " & exit /b %ERRORLEVEL%";
