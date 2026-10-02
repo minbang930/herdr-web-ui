@@ -397,7 +397,7 @@ export type SessionRunLevel = "standard" | "admin";
 export interface SessionCapabilities {
   /** null on non-Windows hosts where per-session Windows elevation does not apply */
   default_run_level: SessionRunLevel | null;
-  /** empty on non-Windows; contains only run levels this Windows bridge verified it can create */
+  /** empty on non-Windows; contains only run levels this Windows bridge verified it can create with real Windows user tokens */
   run_levels: SessionRunLevel[];
   /** whether the process hosting herdr/its panes currently owns an elevated Windows token */
   server_elevated: boolean | null;
