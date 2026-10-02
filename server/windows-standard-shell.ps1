@@ -38,7 +38,7 @@ if ($Marker -ne '') {
     "Write-Output '__HERDR_WEB_STANDARD_READY_$Marker'"
   )
   $bootstrap = $bootstrapLines -join [Environment]::NewLine
-  $childArgs = @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $bootstrap)
+  $childArgs = @('-NoLogo', '-NoExit', '-Command', $bootstrap)
 }
 else {
   if ($CommandBase64 -notmatch '^[A-Za-z0-9+/=]+$') {
