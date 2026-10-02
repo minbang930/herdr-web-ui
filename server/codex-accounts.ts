@@ -10,12 +10,12 @@
  * This intentionally supports the file credential store only. Keyring/auto/ephemeral stores
  * are owned by Codex and are not copied or rewritten by herdr-web-ui.
  */
-import { createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createPublicKey, diffieHellman, generateKeyPairSync, randomBytes, randomUUID, type KeyObject } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { CodexAccountState, CodexAccountSwitchResult, CodexManagedAccount, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
+import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 
@@ -23,6 +23,9 @@ const ACCOUNT_ID_RE = /^[a-f0-9]{24}$/;
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 const EXIT_TIMEOUT_MS = 10_000;
 const POLL_MS = 100;
+const TRANSFER_TTL_MS = 60_000;
+const MAX_TRANSFER_AUTH_BYTES = 256 * 1024;
+const TRANSFER_CONTEXT = Buffer.from("herdr-codex-account-transfer-v1", "utf8");
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
@@ -162,6 +165,7 @@ export class CodexAccountService {
   readonly codexHome: string;
   readonly accountsDir: string;
   private switching = false;
+  private readonly imports = new Map<string, { privateKey: KeyObject; expiresAt: number }>();
 
   constructor(
     stateDir: string,
@@ -176,6 +180,104 @@ export class CodexAccountService {
 
   private livePath(): string { return join(this.codexHome, "auth.json"); }
   private managedPath(id: string): string { return join(this.accountsDir, id, "auth.json"); }
+
+  private authForExport(id: string): ParsedCodexAuth {
+    if (!ACCOUNT_ID_RE.test(id)) throw new CodexAccountError("invalid_account", "Invalid Codex account id.");
+    const current = this.currentAuth();
+    if (current?.id === id) return current;
+    const raw = readText(this.managedPath(id));
+    const stored = raw === null ? null : parseCodexAuth(raw);
+    if (!stored || stored.id !== id) throw new CodexAccountError("codex_account_missing", "That Codex account is not available on the source PC.", 404);
+    return stored;
+  }
+
+  private transferKey(shared: Buffer): Buffer {
+    return createHash("sha256").update(TRANSFER_CONTEXT).update(shared).digest();
+  }
+
+  beginImport(): CodexImportTicket {
+    if (configuredStoreMode(this.codexHome) !== "file") {
+      throw new CodexAccountError("codex_non_file_store", "The destination PC must use Codex's file credential store.", 409);
+    }
+    const now = Date.now();
+    for (const [id, pending] of this.imports) if (pending.expiresAt <= now) this.imports.delete(id);
+    const { publicKey, privateKey } = generateKeyPairSync("x25519");
+    const transferId = randomUUID();
+    const expiresAt = now + TRANSFER_TTL_MS;
+    this.imports.set(transferId, { privateKey, expiresAt });
+    return {
+      transfer_id: transferId,
+      public_key: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      expires_at: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  exportSealed(id: string, targetPublicKeyPem: string): CodexSealedAccount {
+    if (targetPublicKeyPem.length > 4096) throw new CodexAccountError("invalid_transfer_key", "Destination transfer key is invalid.");
+    const auth = this.authForExport(id);
+    const bytes = Buffer.from(auth.raw, "utf8");
+    if (bytes.byteLength > MAX_TRANSFER_AUTH_BYTES) throw new CodexAccountError("codex_auth_too_large", "Codex auth data is unexpectedly large.", 413);
+    let targetPublicKey: KeyObject;
+    try {
+      targetPublicKey = createPublicKey(targetPublicKeyPem);
+    } catch {
+      throw new CodexAccountError("invalid_transfer_key", "Destination transfer key is invalid.");
+    }
+    if (targetPublicKey.asymmetricKeyType !== "x25519") throw new CodexAccountError("invalid_transfer_key", "Destination transfer key is invalid.");
+    const ephemeral = generateKeyPairSync("x25519");
+    const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: targetPublicKey });
+    const key = this.transferKey(shared);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+    return {
+      version: 1,
+      ephemeral_public_key: ephemeral.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      iv: iv.toString("base64url"),
+      ciphertext: ciphertext.toString("base64url"),
+      tag: cipher.getAuthTag().toString("base64url"),
+    };
+  }
+
+  importSealed(transferId: string, sealed: CodexSealedAccount): CodexAccountImportResult {
+    const pending = this.imports.get(transferId);
+    this.imports.delete(transferId); // one try only, successful or not
+    if (!pending || pending.expiresAt <= Date.now()) throw new CodexAccountError("codex_transfer_expired", "The account transfer expired; try importing again.", 409);
+    if (configuredStoreMode(this.codexHome) !== "file") {
+      throw new CodexAccountError("codex_non_file_store", "The destination PC must use Codex's file credential store.", 409);
+    }
+    if (!sealed || sealed.version !== 1 || typeof sealed.ephemeral_public_key !== "string"
+      || typeof sealed.iv !== "string" || typeof sealed.ciphertext !== "string" || typeof sealed.tag !== "string") {
+      throw new CodexAccountError("invalid_transfer", "Encrypted Codex account transfer is invalid.");
+    }
+    let ephemeralPublicKey: KeyObject;
+    try {
+      ephemeralPublicKey = createPublicKey(sealed.ephemeral_public_key);
+    } catch {
+      throw new CodexAccountError("invalid_transfer", "Encrypted Codex account transfer is invalid.");
+    }
+    if (ephemeralPublicKey.asymmetricKeyType !== "x25519") throw new CodexAccountError("invalid_transfer", "Encrypted Codex account transfer is invalid.");
+    const iv = Buffer.from(sealed.iv, "base64url");
+    const ciphertext = Buffer.from(sealed.ciphertext, "base64url");
+    const tag = Buffer.from(sealed.tag, "base64url");
+    if (iv.byteLength !== 12 || tag.byteLength !== 16 || ciphertext.byteLength > MAX_TRANSFER_AUTH_BYTES) {
+      throw new CodexAccountError("invalid_transfer", "Encrypted Codex account transfer is invalid.");
+    }
+    let raw: string;
+    try {
+      const shared = diffieHellman({ privateKey: pending.privateKey, publicKey: ephemeralPublicKey });
+      const decipher = createDecipheriv("aes-256-gcm", this.transferKey(shared), iv);
+      decipher.setAuthTag(tag);
+      raw = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    } catch {
+      throw new CodexAccountError("invalid_transfer", "Encrypted Codex account transfer could not be decrypted.");
+    }
+    const auth = parseCodexAuth(raw);
+    if (!auth) throw new CodexAccountError("invalid_transfer", "Transferred data is not a ChatGPT Codex sign-in.");
+    privateWrite(this.managedPath(auth.id), auth.raw);
+    this.onChanged();
+    return { state: this.state(), imported_account_id: auth.id };
+  }
 
   private currentAuth(): ParsedCodexAuth | null {
     const raw = readText(this.livePath());
@@ -322,7 +424,13 @@ export async function handleCodexAccountRequest(request: Request, url: URL, serv
     if (url.pathname !== "/api/codex/accounts") return jsonResponse({ error: { code: "not_found", message: "Unknown Codex account endpoint" } }, 404);
     if (request.method === "GET") return jsonResponse(service.state());
     if (request.method !== "POST") return jsonResponse({ error: { code: "method_not_allowed", message: "Use GET or POST" } }, 405);
-    const body = await request.json().catch(() => null) as { action?: unknown; account_id?: unknown } | null;
+    const body = await request.json().catch(() => null) as {
+      action?: unknown;
+      account_id?: unknown;
+      public_key?: unknown;
+      transfer_id?: unknown;
+      sealed?: unknown;
+    } | null;
     if (!body || typeof body !== "object") throw new CodexAccountError("invalid_body", "Expected a JSON object.");
     if (body.action === "save") return jsonResponse(service.saveCurrent());
     if (body.action === "remove") {
@@ -333,7 +441,20 @@ export async function handleCodexAccountRequest(request: Request, url: URL, serv
       if (typeof body.account_id !== "string") throw new CodexAccountError("missing_account", "account_id is required.");
       return jsonResponse(await service.switchTo(body.account_id));
     }
-    throw new CodexAccountError("invalid_action", "action must be save, switch or remove.");
+    if (body.action === "import_begin") return jsonResponse(service.beginImport());
+    if (body.action === "export_sealed") {
+      if (typeof body.account_id !== "string" || typeof body.public_key !== "string") {
+        throw new CodexAccountError("invalid_transfer", "account_id and public_key are required.");
+      }
+      return jsonResponse(service.exportSealed(body.account_id, body.public_key));
+    }
+    if (body.action === "import_sealed") {
+      if (typeof body.transfer_id !== "string" || !body.sealed || typeof body.sealed !== "object") {
+        throw new CodexAccountError("invalid_transfer", "transfer_id and sealed are required.");
+      }
+      return jsonResponse(service.importSealed(body.transfer_id, body.sealed as CodexSealedAccount));
+    }
+    throw new CodexAccountError("invalid_action", "Unknown Codex account action.");
   } catch (error) {
     if (error instanceof CodexAccountError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
     return jsonResponse({ error: { code: "codex_account_failed", message: error instanceof Error ? error.message : String(error) } }, 500);
