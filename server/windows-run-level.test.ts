@@ -12,6 +12,7 @@ import {
 } from "./windows-run-level.ts";
 
 const roots: string[] = [];
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -51,27 +52,8 @@ describe("Windows session run levels", () => {
 
   it("ships an intact linked-token PowerShell helper", () => {
     const helper = readFileSync(join(import.meta.dir, "windows-standard-shell.ps1"), "utf8");
-    expect(helper).toContain("if ($Marker -notmatch '^[A-Fa-f0-9]{32}    const pane = { pane_id: "w1:p1", workspace_id: "w1" } as HerdrPane;
-    const standard = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "standard" } }] } as SessionSnapshot;
-    const admin = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "admin" } }] } as SessionSnapshot;
-    const old = { workspaces: [{ workspace_id: "w1" }] } as SessionSnapshot;
-    expect(workspaceRunLevel(standard, pane)).toBe("standard");
-    expect(workspaceRunLevel(admin, pane)).toBe("admin");
-    expect(workspaceRunLevel(old, pane)).toBeNull();
-    expect(workspaceRunLevel(old, pane, (workspaceId) => workspaceId === "w1" ? "standard" : null)).toBe("standard");
-  });
-});
-)");
-    expect(helper).toContain("if ($CommandBase64 -notmatch '^[A-Za-z0-9+/=]+    const pane = { pane_id: "w1:p1", workspace_id: "w1" } as HerdrPane;
-    const standard = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "standard" } }] } as SessionSnapshot;
-    const admin = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "admin" } }] } as SessionSnapshot;
-    const old = { workspaces: [{ workspace_id: "w1" }] } as SessionSnapshot;
-    expect(workspaceRunLevel(standard, pane)).toBe("standard");
-    expect(workspaceRunLevel(admin, pane)).toBe("admin");
-    expect(workspaceRunLevel(old, pane)).toBeNull();
-  });
-});
-)");
+    expect(helper).toContain("if ($Marker -notmatch '^[A-Fa-f0-9]{32}$')");
+    expect(helper).toContain("if ($CommandBase64 -notmatch '^[A-Za-z0-9+/=]+$')");
     expect(helper).toContain("CreateProcessAsUserW");
     expect(helper).toContain("CreateProcessWithTokenW");
     expect(helper).toContain("TokenLinkedToken");
@@ -87,6 +69,7 @@ describe("Windows session run levels", () => {
   it("persists workspace run levels outside Herdr's transient metadata", () => {
     const root = mkdtempSync(join(tmpdir(), "herdr-run-levels-"));
     roots.push(root);
+
     const first = new WindowsRunLevelStore(root);
     first.set("w1", "standard");
     first.set("w2", "admin");
@@ -103,11 +86,18 @@ describe("Windows session run levels", () => {
 
   it("reads persistent run-level metadata from the pane's workspace", () => {
     const pane = { pane_id: "w1:p1", workspace_id: "w1" } as HerdrPane;
-    const standard = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "standard" } }] } as SessionSnapshot;
-    const admin = { workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "admin" } }] } as SessionSnapshot;
+    const standard = {
+      workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "standard" } }],
+    } as SessionSnapshot;
+    const admin = {
+      workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "admin" } }],
+    } as SessionSnapshot;
     const old = { workspaces: [{ workspace_id: "w1" }] } as SessionSnapshot;
+
     expect(workspaceRunLevel(standard, pane)).toBe("standard");
     expect(workspaceRunLevel(admin, pane)).toBe("admin");
     expect(workspaceRunLevel(old, pane)).toBeNull();
+    expect(workspaceRunLevel(old, pane, (workspaceId) => workspaceId === "w1" ? "standard" : null))
+      .toBe("standard");
   });
 });
