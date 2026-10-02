@@ -424,13 +424,7 @@ export async function handleCodexAccountRequest(request: Request, url: URL, serv
     if (url.pathname !== "/api/codex/accounts") return jsonResponse({ error: { code: "not_found", message: "Unknown Codex account endpoint" } }, 404);
     if (request.method === "GET") return jsonResponse(service.state());
     if (request.method !== "POST") return jsonResponse({ error: { code: "method_not_allowed", message: "Use GET or POST" } }, 405);
-    const body = await request.json().catch(() => null) as {
-      action?: unknown;
-      account_id?: unknown;
-      public_key?: unknown;
-      transfer_id?: unknown;
-      sealed?: unknown;
-    } | null;
+    const body = await request.json().catch(() => null) as { action?: unknown; account_id?: unknown } | null;
     if (!body || typeof body !== "object") throw new CodexAccountError("invalid_body", "Expected a JSON object.");
     if (body.action === "save") return jsonResponse(service.saveCurrent());
     if (body.action === "remove") {
@@ -441,6 +435,28 @@ export async function handleCodexAccountRequest(request: Request, url: URL, serv
       if (typeof body.account_id !== "string") throw new CodexAccountError("missing_account", "account_id is required.");
       return jsonResponse(await service.switchTo(body.account_id));
     }
+    throw new CodexAccountError("invalid_action", "action must be save, switch or remove.");
+  } catch (error) {
+    if (error instanceof CodexAccountError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
+    return jsonResponse({ error: { code: "codex_account_failed", message: error instanceof Error ? error.message : String(error) } }, 500);
+  }
+}
+
+/**
+ * Internal bridge-only transfer endpoint. The connection server calls this directly with the
+ * remote bridge token; it is deliberately not exposed through /api/machines/:id/*.
+ */
+export async function handleCodexTransferRequest(request: Request, service: CodexAccountService): Promise<Response> {
+  try {
+    if (request.method !== "POST") return jsonResponse({ error: { code: "method_not_allowed", message: "Use POST" } }, 405);
+    const body = await request.json().catch(() => null) as {
+      action?: unknown;
+      account_id?: unknown;
+      public_key?: unknown;
+      transfer_id?: unknown;
+      sealed?: unknown;
+    } | null;
+    if (!body || typeof body !== "object") throw new CodexAccountError("invalid_body", "Expected a JSON object.");
     if (body.action === "import_begin") return jsonResponse(service.beginImport());
     if (body.action === "export_sealed") {
       if (typeof body.account_id !== "string" || typeof body.public_key !== "string") {
@@ -454,9 +470,9 @@ export async function handleCodexAccountRequest(request: Request, url: URL, serv
       }
       return jsonResponse(service.importSealed(body.transfer_id, body.sealed as CodexSealedAccount));
     }
-    throw new CodexAccountError("invalid_action", "Unknown Codex account action.");
+    throw new CodexAccountError("invalid_action", "Unknown Codex transfer action.");
   } catch (error) {
     if (error instanceof CodexAccountError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.status);
-    return jsonResponse({ error: { code: "codex_account_failed", message: error instanceof Error ? error.message : String(error) } }, 500);
+    return jsonResponse({ error: { code: "codex_transfer_failed", message: error instanceof Error ? error.message : String(error) } }, 500);
   }
 }
