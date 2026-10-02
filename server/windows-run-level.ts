@@ -192,8 +192,9 @@ export async function startAgentInWindowsStandardShell(
     await startShellAgent(kind, paneId, args, { timeoutMs });
     return;
   }
-  const executable = canonicalWindowsAgentExecutable(kind);
-  if (!executable) throw new Error(`unsupported Windows agent kind ${kind}`);
+  const executableName = canonicalWindowsAgentExecutable(kind);
+  if (!executableName) throw new Error(`unsupported Windows agent kind ${kind}`);
+  const executable = Bun.which(executableName, { PATH: process.env["PATH"] ?? "" }) ?? executableName;
   const command = shellCommandLine("powershell", executable, args);
   await paneSendText(paneId, command);
   await Bun.sleep(40);
