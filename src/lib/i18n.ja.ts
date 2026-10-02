@@ -625,4 +625,9 @@ export const JA: Record<string, string> = {
   "The current Codex auth file is not a ChatGPT sign-in.": "現在の Codex 認証ファイルは ChatGPT のサインイン情報ではありません。",
   "Sign in to Codex on this PC once, then save the current account here.": "この PC で一度 Codex にサインインしてから、現在のアカウントをここに保存してください。",
   "Save each Codex account once. After that, switching does not require browser login.": "各 Codex アカウントを一度保存すれば、その後はブラウザでのログインなしで切り替えられます。",
+  "Import from another PC": "別の PC から取り込む",
+  "Looking for Codex accounts on other PCs…": "他の PC の Codex アカウントを検索中…",
+  "No new Codex accounts found on connected PCs.": "接続中の他の PC に新しい Codex アカウントが見つかりません。",
+  "Importing…": "取り込み中…",
+  "Import": "取り込む",
 };
