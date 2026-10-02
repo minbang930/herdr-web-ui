@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
-import { restartCodexDaemonInWindowsStandardShell, startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
+import { runWindowsStandardPowerShell, startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
 
 const ACCOUNT_ID_RE = /^[a-f0-9]{24}$/;
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
@@ -127,12 +127,22 @@ export interface CodexAccountRuntime {
   restartDaemon(codexHome: string, standardPaneId?: string): Promise<string | null>;
 }
 
-async function restartCodexDaemon(codexHome: string, standardPaneId?: string): Promise<string | null> {
-  if (process.platform === "win32" && standardPaneId) {
-    return restartCodexDaemonInWindowsStandardShell(standardPaneId, codexHome);
-  }
+async function restartCodexDaemon(codexHome: string, _standardPaneId?: string): Promise<string | null> {
   const binary = Bun.which("codex", { PATH: process.env["PATH"] ?? "" });
   if (!binary) return "Codex CLI was not found; existing background app-server processes may need a manual restart.";
+  if (process.platform === "win32") {
+    const command = [
+      "$env:CODEX_HOME=" + JSON.stringify(codexHome),
+      "& " + JSON.stringify(binary) + " app-server daemon restart",
+      "exit $LASTEXITCODE",
+    ].join("; ");
+    try {
+      const result = await runWindowsStandardPowerShell(command, 15_000);
+      return result.code === 0 ? null : `Codex account switched, but the standard-token daemon restart failed: ${result.stderr || `exit ${result.code}`}`;
+    } catch (error) {
+      return `Codex account switched, but the standard-token daemon restart failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
   const env = { ...process.env, CODEX_HOME: codexHome };
   try {
     const version = Bun.spawn([binary, "app-server", "daemon", "version"], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -417,8 +427,7 @@ export class CodexAccountService {
 
       privateWrite(this.livePath(), target.raw);
       const warnings: string[] = [];
-      const standardPane = resumable.find((pane) => pane.runLevel === "standard");
-      const daemonWarning = await this.runtime.restartDaemon(this.codexHome, standardPane?.paneId);
+      const daemonWarning = await this.runtime.restartDaemon(this.codexHome);
       if (daemonWarning) warnings.push(daemonWarning);
 
       const resumed: string[] = [];
