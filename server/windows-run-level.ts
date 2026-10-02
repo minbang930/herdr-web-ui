@@ -108,6 +108,7 @@ interface ProcessInfo {
 }
 
 let elevation: Promise<boolean> | null = null;
+let standardAvailability: Promise<boolean> | null = null;
 
 async function detectWindowsElevation(): Promise<boolean> {
   if (process.platform !== "win32") return false;
@@ -132,10 +133,21 @@ export async function sessionCapabilities(): Promise<SessionCapabilities> {
   }
   elevation ??= detectWindowsElevation();
   const serverElevated = await elevation;
+  if (!serverElevated) {
+    return { default_run_level: "standard", run_levels: ["standard"], server_elevated: false };
+  }
+
+  // OpenSSH administrator logons vary: some have a normal linked UAC token, some expose only
+  // a full token. Probe the same verified helper used by real sessions once per bridge process,
+  // so the dialog never advertises Standard when this Windows logon cannot actually create it.
+  standardAvailability ??= runWindowsStandardPowerShell("exit 0", 10_000)
+    .then((result) => result.code === 0)
+    .catch(() => false);
+  const standardAvailable = await standardAvailability;
   return {
-    default_run_level: "standard",
-    run_levels: serverElevated ? ["standard", "admin"] : ["standard"],
-    server_elevated: serverElevated,
+    default_run_level: standardAvailable ? "standard" : "admin",
+    run_levels: standardAvailable ? ["standard", "admin"] : ["admin"],
+    server_elevated: true,
   };
 }
 
