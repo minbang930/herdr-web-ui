@@ -54,7 +54,8 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
-import { CodexAccountService, handleCodexAccountRequest } from "./codex-accounts.ts";
+import { CodexAccountService, handleCodexAccountRequest, handleCodexTransferRequest } from "./codex-accounts.ts";
+import { handleCodexCrossMachineTransfer } from "./codex-transfer.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -849,6 +850,16 @@ export function createServer(
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
       if (pathname === "/api/codex/accounts") return handleCodexAccountRequest(request, url, codexAccounts);
+      if (pathname === "/api/codex/transfer") {
+        // Internal remote-bridge endpoint only. Never expose the credential-transfer primitives
+        // on the connection server or through the browser's machine proxy.
+        if (machines !== null || token === "" || !isAuthenticated(request, token)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+        return handleCodexTransferRequest(request, codexAccounts);
+      }
+      if (pathname === "/api/codex/account-transfer") {
+        if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Copy Codex accounts from the connection server" } }, 404);
+        return handleCodexCrossMachineTransfer(request, machines, codexAccounts);
+      }
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
