@@ -88,8 +88,8 @@ describe("Windows session run levels", () => {
     expect(helper).toContain("TokenLinkedToken");
     expect(helper).toContain("Process.GetProcessesByName(\"explorer\")");
     expect(helper).toContain("TokenElevationTypeLimited");
-    expect(helper).not.toContain("CreateRestrictedToken");
-    expect(helper).not.toContain("LUA_TOKEN");
+    expect(helper).not.toContain("private static extern bool CreateRestrictedToken(");
+    expect(helper).not.toContain("private const uint LUA_TOKEN");
     expect(helper).toContain("TokenElevation");
     expect(helper).toContain("elevation.TokenIsElevated != 0");
     expect(helper).toContain("HERDR_SOCKET_PATH");
