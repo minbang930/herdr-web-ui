@@ -1,9 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$Shell,
-  [Parameter(Mandatory = $true)]
-  [ValidatePattern('^[A-Fa-f0-9]{32}$')]
-  [string]$Marker
+  [string]$Marker = '',
+  [string]$CommandBase64 = ''
 )
 
 Set-StrictMode -Version Latest
@@ -20,7 +19,319 @@ function Test-HerdrWebElevated {
   return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-$bootstrap = @"
+if (($Marker -eq '') -eq ($CommandBase64 -eq '')) {
+  throw 'Specify exactly one of -Marker or -CommandBase64'
+}
+
+if ($Marker -ne '') {
+  if ($Marker -notmatch '^[A-Fa-f0-9]{32}
+# If herdr itself is already standard, keep the exact same lifecycle shape: a child owns the
+# interactive console, this bootstrap waits, and the elevated/outer shell never reappears.
+if (-not (Test-HerdrWebElevated)) {
+  & $Shell @childArgs
+  exit $LASTEXITCODE
+}
+
+if (-not ('HerdrWebUi.StandardProcess' -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace HerdrWebUi
+{
+    public static class StandardProcess
+    {
+        private const uint TOKEN_QUERY = 0x0008;
+        private const uint TOKEN_DUPLICATE = 0x0002;
+        private const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+        private const uint MAXIMUM_ALLOWED = 0x02000000;
+        private const int TokenLinkedToken = 19;
+        private const int SecurityImpersonation = 2;
+        private const int TokenPrimary = 1;
+        private const uint INFINITE = 0xffffffff;
+        private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+        private const int ERROR_PRIVILEGE_NOT_HELD = 1314;
+        private const uint LOGON_WITH_PROFILE = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_LINKED_TOKEN
+        {
+            public IntPtr LinkedToken;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct STARTUPINFO
+        {
+            public int cb;
+            public IntPtr lpReserved;
+            public IntPtr lpDesktop;
+            public IntPtr lpTitle;
+            public int dwX;
+            public int dwY;
+            public int dwXSize;
+            public int dwYSize;
+            public int dwXCountChars;
+            public int dwYCountChars;
+            public int dwFillAttribute;
+            public int dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public uint dwProcessId;
+            public uint dwThreadId;
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool OpenProcessToken(
+            IntPtr process,
+            uint desiredAccess,
+            out IntPtr token
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetTokenInformation(
+            IntPtr token,
+            int tokenInformationClass,
+            out TOKEN_LINKED_TOKEN tokenInformation,
+            int tokenInformationLength,
+            out int returnLength
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool DuplicateTokenEx(
+            IntPtr existingToken,
+            uint desiredAccess,
+            IntPtr tokenAttributes,
+            int impersonationLevel,
+            int tokenType,
+            out IntPtr newToken
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessAsUserW(
+            IntPtr token,
+            string applicationName,
+            StringBuilder commandLine,
+            IntPtr processAttributes,
+            IntPtr threadAttributes,
+            bool inheritHandles,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref STARTUPINFO startupInfo,
+            out PROCESS_INFORMATION processInformation
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessWithTokenW(
+            IntPtr token,
+            uint logonFlags,
+            string applicationName,
+            StringBuilder commandLine,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref STARTUPINFO startupInfo,
+            out PROCESS_INFORMATION processInformation
+        );
+
+        private static string Quote(string value)
+        {
+            if (value.Length == 0)
+                return "\"\"";
+            if (value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '\"' }) < 0)
+                return value;
+
+            var result = new StringBuilder();
+            result.Append('\"');
+            int backslashes = 0;
+            foreach (char ch in value)
+            {
+                if (ch == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+
+                if (ch == '\"')
+                {
+                    result.Append('\\', backslashes * 2 + 1);
+                    result.Append('\"');
+                    backslashes = 0;
+                    continue;
+                }
+
+                if (backslashes > 0)
+                {
+                    result.Append('\\', backslashes);
+                    backslashes = 0;
+                }
+                result.Append(ch);
+            }
+            if (backslashes > 0)
+                result.Append('\\', backslashes * 2);
+            result.Append('\"');
+            return result.ToString();
+        }
+
+        // Keep HERDR_SOCKET_PATH / HERDR_PANE_ID / PATH and the rest of the pane's environment.
+        // Passing NULL here would rebuild a generic user environment and break Herdr's agent hooks.
+        private static IntPtr BuildEnvironmentBlock()
+        {
+            var values = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process))
+            {
+                var key = entry.Key as string;
+                var value = entry.Value as string;
+                if (!String.IsNullOrEmpty(key) && value != null)
+                    values[key] = value;
+            }
+
+            var block = new StringBuilder();
+            foreach (var entry in values)
+            {
+                block.Append(entry.Key);
+                block.Append('=');
+                block.Append(entry.Value);
+                block.Append('\0');
+            }
+            block.Append('\0');
+            return Marshal.StringToHGlobalUni(block.ToString());
+        }
+
+        public static int Run(string file, string[] args, string cwd)
+        {
+            IntPtr currentToken = IntPtr.Zero;
+            IntPtr linkedToken = IntPtr.Zero;
+            IntPtr primaryToken = IntPtr.Zero;
+            PROCESS_INFORMATION process = new PROCESS_INFORMATION();
+            IntPtr environment = IntPtr.Zero;
+
+            try
+            {
+                if (!OpenProcessToken(
+                    GetCurrentProcess(),
+                    TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
+                    out currentToken))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
+
+                TOKEN_LINKED_TOKEN linked;
+                int returned;
+                if (!GetTokenInformation(
+                    currentToken,
+                    TokenLinkedToken,
+                    out linked,
+                    Marshal.SizeOf(typeof(TOKEN_LINKED_TOKEN)),
+                    out returned))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "The elevated process has no linked standard token");
+
+                linkedToken = linked.LinkedToken;
+                if (!DuplicateTokenEx(
+                    linkedToken,
+                    MAXIMUM_ALLOWED,
+                    IntPtr.Zero,
+                    SecurityImpersonation,
+                    TokenPrimary,
+                    out primaryToken))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "DuplicateTokenEx failed");
+
+                var commandLine = new StringBuilder();
+                commandLine.Append(Quote(file));
+                foreach (string arg in args)
+                {
+                    commandLine.Append(' ');
+                    commandLine.Append(Quote(arg));
+                }
+
+                var startup = new STARTUPINFO();
+                startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+
+                environment = BuildEnvironmentBlock();
+
+                // No NEW_CONSOLE flag: the child stays inside herdr's existing ConPTY. Prefer
+                // CreateProcessAsUser; some administrator tokens do not carry its quota privilege,
+                // so ERROR_PRIVILEGE_NOT_HELD falls back to CreateProcessWithTokenW.
+                bool created = CreateProcessAsUserW(
+                    primaryToken,
+                    file,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    CREATE_UNICODE_ENVIRONMENT,
+                    environment,
+                    cwd,
+                    ref startup,
+                    out process);
+                if (!created && Marshal.GetLastWin32Error() == ERROR_PRIVILEGE_NOT_HELD)
+                {
+                    process = new PROCESS_INFORMATION();
+                    commandLine = new StringBuilder(commandLine.ToString());
+                    created = CreateProcessWithTokenW(
+                        primaryToken,
+                        LOGON_WITH_PROFILE,
+                        file,
+                        commandLine,
+                        CREATE_UNICODE_ENVIRONMENT,
+                        environment,
+                        cwd,
+                        ref startup,
+                        out process);
+                }
+                if (!created)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the standard-token child process");
+
+                WaitForSingleObject(process.hProcess, INFINITE);
+                uint exitCode;
+                if (!GetExitCodeProcess(process.hProcess, out exitCode))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed");
+                return unchecked((int)exitCode);
+            }
+            finally
+            {
+                if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
+                if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
+                if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
+                if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+                if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
+                if (currentToken != IntPtr.Zero) CloseHandle(currentToken);
+            }
+        }
+    }
+}
+'@
+}
+
+$code = [HerdrWebUi.StandardProcess]::Run($Shell, $childArgs, (Get-Location).Path)
+exit $code
+) { throw 'Invalid readiness marker' }
+  $bootstrap = @"
 `$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 `$principal = [Security.Principal.WindowsPrincipal]::new(`$identity)
 if (`$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -29,8 +340,319 @@ if (`$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 Write-Output '__HERDR_WEB_STANDARD_READY_$Marker'
 "@
+  $childArgs = @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $bootstrap)
+} else {
+  # The caller supplies a PowerShell -EncodedCommand (UTF-16LE base64). This mode is used for
+  # short maintenance commands such as restarting the Codex daemon with the standard token.
+  if ($CommandBase64 -notmatch '^[A-Za-z0-9+/=]+
+# If herdr itself is already standard, keep the exact same lifecycle shape: a child owns the
+# interactive console, this bootstrap waits, and the elevated/outer shell never reappears.
+if (-not (Test-HerdrWebElevated)) {
+  & $Shell @childArgs
+  exit $LASTEXITCODE
+}
 
-$childArgs = @('-NoLogo', '-NoProfile', '-NoExit', '-Command', $bootstrap)
+if (-not ('HerdrWebUi.StandardProcess' -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace HerdrWebUi
+{
+    public static class StandardProcess
+    {
+        private const uint TOKEN_QUERY = 0x0008;
+        private const uint TOKEN_DUPLICATE = 0x0002;
+        private const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+        private const uint MAXIMUM_ALLOWED = 0x02000000;
+        private const int TokenLinkedToken = 19;
+        private const int SecurityImpersonation = 2;
+        private const int TokenPrimary = 1;
+        private const uint INFINITE = 0xffffffff;
+        private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+        private const int ERROR_PRIVILEGE_NOT_HELD = 1314;
+        private const uint LOGON_WITH_PROFILE = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_LINKED_TOKEN
+        {
+            public IntPtr LinkedToken;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct STARTUPINFO
+        {
+            public int cb;
+            public IntPtr lpReserved;
+            public IntPtr lpDesktop;
+            public IntPtr lpTitle;
+            public int dwX;
+            public int dwY;
+            public int dwXSize;
+            public int dwYSize;
+            public int dwXCountChars;
+            public int dwYCountChars;
+            public int dwFillAttribute;
+            public int dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public uint dwProcessId;
+            public uint dwThreadId;
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool OpenProcessToken(
+            IntPtr process,
+            uint desiredAccess,
+            out IntPtr token
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetTokenInformation(
+            IntPtr token,
+            int tokenInformationClass,
+            out TOKEN_LINKED_TOKEN tokenInformation,
+            int tokenInformationLength,
+            out int returnLength
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool DuplicateTokenEx(
+            IntPtr existingToken,
+            uint desiredAccess,
+            IntPtr tokenAttributes,
+            int impersonationLevel,
+            int tokenType,
+            out IntPtr newToken
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessAsUserW(
+            IntPtr token,
+            string applicationName,
+            StringBuilder commandLine,
+            IntPtr processAttributes,
+            IntPtr threadAttributes,
+            bool inheritHandles,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref STARTUPINFO startupInfo,
+            out PROCESS_INFORMATION processInformation
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessWithTokenW(
+            IntPtr token,
+            uint logonFlags,
+            string applicationName,
+            StringBuilder commandLine,
+            uint creationFlags,
+            IntPtr environment,
+            string currentDirectory,
+            ref STARTUPINFO startupInfo,
+            out PROCESS_INFORMATION processInformation
+        );
+
+        private static string Quote(string value)
+        {
+            if (value.Length == 0)
+                return "\"\"";
+            if (value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '\"' }) < 0)
+                return value;
+
+            var result = new StringBuilder();
+            result.Append('\"');
+            int backslashes = 0;
+            foreach (char ch in value)
+            {
+                if (ch == '\\')
+                {
+                    backslashes++;
+                    continue;
+                }
+
+                if (ch == '\"')
+                {
+                    result.Append('\\', backslashes * 2 + 1);
+                    result.Append('\"');
+                    backslashes = 0;
+                    continue;
+                }
+
+                if (backslashes > 0)
+                {
+                    result.Append('\\', backslashes);
+                    backslashes = 0;
+                }
+                result.Append(ch);
+            }
+            if (backslashes > 0)
+                result.Append('\\', backslashes * 2);
+            result.Append('\"');
+            return result.ToString();
+        }
+
+        // Keep HERDR_SOCKET_PATH / HERDR_PANE_ID / PATH and the rest of the pane's environment.
+        // Passing NULL here would rebuild a generic user environment and break Herdr's agent hooks.
+        private static IntPtr BuildEnvironmentBlock()
+        {
+            var values = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process))
+            {
+                var key = entry.Key as string;
+                var value = entry.Value as string;
+                if (!String.IsNullOrEmpty(key) && value != null)
+                    values[key] = value;
+            }
+
+            var block = new StringBuilder();
+            foreach (var entry in values)
+            {
+                block.Append(entry.Key);
+                block.Append('=');
+                block.Append(entry.Value);
+                block.Append('\0');
+            }
+            block.Append('\0');
+            return Marshal.StringToHGlobalUni(block.ToString());
+        }
+
+        public static int Run(string file, string[] args, string cwd)
+        {
+            IntPtr currentToken = IntPtr.Zero;
+            IntPtr linkedToken = IntPtr.Zero;
+            IntPtr primaryToken = IntPtr.Zero;
+            PROCESS_INFORMATION process = new PROCESS_INFORMATION();
+            IntPtr environment = IntPtr.Zero;
+
+            try
+            {
+                if (!OpenProcessToken(
+                    GetCurrentProcess(),
+                    TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
+                    out currentToken))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
+
+                TOKEN_LINKED_TOKEN linked;
+                int returned;
+                if (!GetTokenInformation(
+                    currentToken,
+                    TokenLinkedToken,
+                    out linked,
+                    Marshal.SizeOf(typeof(TOKEN_LINKED_TOKEN)),
+                    out returned))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "The elevated process has no linked standard token");
+
+                linkedToken = linked.LinkedToken;
+                if (!DuplicateTokenEx(
+                    linkedToken,
+                    MAXIMUM_ALLOWED,
+                    IntPtr.Zero,
+                    SecurityImpersonation,
+                    TokenPrimary,
+                    out primaryToken))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "DuplicateTokenEx failed");
+
+                var commandLine = new StringBuilder();
+                commandLine.Append(Quote(file));
+                foreach (string arg in args)
+                {
+                    commandLine.Append(' ');
+                    commandLine.Append(Quote(arg));
+                }
+
+                var startup = new STARTUPINFO();
+                startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+
+                environment = BuildEnvironmentBlock();
+
+                // No NEW_CONSOLE flag: the child stays inside herdr's existing ConPTY. Prefer
+                // CreateProcessAsUser; some administrator tokens do not carry its quota privilege,
+                // so ERROR_PRIVILEGE_NOT_HELD falls back to CreateProcessWithTokenW.
+                bool created = CreateProcessAsUserW(
+                    primaryToken,
+                    file,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    CREATE_UNICODE_ENVIRONMENT,
+                    environment,
+                    cwd,
+                    ref startup,
+                    out process);
+                if (!created && Marshal.GetLastWin32Error() == ERROR_PRIVILEGE_NOT_HELD)
+                {
+                    process = new PROCESS_INFORMATION();
+                    commandLine = new StringBuilder(commandLine.ToString());
+                    created = CreateProcessWithTokenW(
+                        primaryToken,
+                        LOGON_WITH_PROFILE,
+                        file,
+                        commandLine,
+                        CREATE_UNICODE_ENVIRONMENT,
+                        environment,
+                        cwd,
+                        ref startup,
+                        out process);
+                }
+                if (!created)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not create the standard-token child process");
+
+                WaitForSingleObject(process.hProcess, INFINITE);
+                uint exitCode;
+                if (!GetExitCodeProcess(process.hProcess, out exitCode))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed");
+                return unchecked((int)exitCode);
+            }
+            finally
+            {
+                if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
+                if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
+                if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
+                if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+                if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
+                if (currentToken != IntPtr.Zero) CloseHandle(currentToken);
+            }
+        }
+    }
+}
+'@
+}
+
+$code = [HerdrWebUi.StandardProcess]::Run($Shell, $childArgs, (Get-Location).Path)
+exit $code
+) { throw 'Invalid encoded command' }
+  $childArgs = @('-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', $CommandBase64)
+}
 
 # If herdr itself is already standard, keep the exact same lifecycle shape: a child owns the
 # interactive console, this bootstrap waits, and the elevated/outer shell never reappears.
