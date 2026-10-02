@@ -256,6 +256,43 @@ export async function enterWindowsStandardShell(paneId: string): Promise<void> {
   await waitForMarker(paneId, marker);
 }
 
+export async function runWindowsStandardPowerShell(
+  command: string,
+  timeoutMs = 15_000,
+): Promise<{ code: number; stderr: string }> {
+  if (process.platform !== "win32") throw new Error("Windows run levels are only available on Windows");
+  const helperHost = Bun.which("powershell.exe", { PATH: process.env["PATH"] ?? "" }) ?? "powershell.exe";
+  const childShell = Bun.which("pwsh.exe", { PATH: process.env["PATH"] ?? "" })
+    ?? Bun.which("powershell.exe", { PATH: process.env["PATH"] ?? "" })
+    ?? "powershell.exe";
+  const helperScript = join(import.meta.dir, "windows-standard-shell.ps1");
+  const encoded = Buffer.from(command, "utf16le").toString("base64");
+  const child = Bun.spawn([
+    helperHost,
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    helperScript,
+    "-Shell",
+    childShell,
+    "-CommandBase64",
+    encoded,
+  ], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const stdout = new Response(child.stdout).arrayBuffer().catch(() => new ArrayBuffer(0));
+  const stderr = new Response(child.stderr).text().catch(() => "");
+  const timeout = Bun.sleep(timeoutMs).then(() => {
+    try { child.kill(); } catch {}
+    return null;
+  });
+  const code = await Promise.race([child.exited.then((value) => value), timeout]);
+  await stdout;
+  const errorText = await stderr;
+  if (code === null) return { code: 124, stderr: "standard-token command timed out" };
+  return { code, stderr: errorText.trim() };
+}
+
 async function waitForAgent(paneId: string, kind: string, timeoutMs = AGENT_START_TIMEOUT_MS): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
