@@ -71,7 +71,9 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 
 namespace HerdrWebUi
@@ -81,9 +83,11 @@ namespace HerdrWebUi
         private const uint TOKEN_QUERY = 0x0008;
         private const uint TOKEN_DUPLICATE = 0x0002;
         private const uint MAXIMUM_ALLOWED = 0x02000000;
+        private const int TokenElevationType = 18;
         private const int TokenLinkedToken = 19;
         private const int TokenElevation = 20;
-        private const uint LUA_TOKEN = 0x00000004;
+        private const int TokenElevationTypeLimited = 3;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
         private const int SecurityImpersonation = 2;
         private const int TokenPrimary = 1;
         private const uint INFINITE = 0xffffffff;
@@ -139,6 +143,13 @@ namespace HerdrWebUi
         private static extern IntPtr GetCurrentProcess();
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(
+            uint desiredAccess,
+            bool inheritHandle,
+            uint processId
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -175,17 +186,13 @@ namespace HerdrWebUi
             out int returnLength
         );
 
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool CreateRestrictedToken(
-            IntPtr existingToken,
-            uint flags,
-            uint disableSidCount,
-            IntPtr sidsToDisable,
-            uint deletePrivilegeCount,
-            IntPtr privilegesToDelete,
-            uint restrictedSidCount,
-            IntPtr sidsToRestrict,
-            out IntPtr newToken
+        [DllImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
+        private static extern bool GetTokenInformationElevationType(
+            IntPtr token,
+            int tokenInformationClass,
+            out int tokenInformation,
+            int tokenInformationLength,
+            out int returnLength
         );
 
         [DllImport("advapi32.dll", SetLastError = true)]
@@ -225,6 +232,85 @@ namespace HerdrWebUi
             ref STARTUPINFO startupInfo,
             out PROCESS_INFORMATION processInformation
         );
+
+        // OpenSSH/WMI administrator processes often have no TokenLinkedToken. In that case,
+        // borrow the same account's real UAC-limited desktop token from Explorer. Unlike
+        // CreateRestrictedToken(LUA_TOKEN), this is the token Windows itself gave the user's
+        // non-elevated desktop and is compatible with Codex's Windows process/exec stack.
+        private static bool TryOpenDesktopStandardToken(out IntPtr token)
+        {
+            token = IntPtr.Zero;
+            string currentSid;
+            using (WindowsIdentity current = WindowsIdentity.GetCurrent())
+            {
+                currentSid = current.User == null ? null : current.User.Value;
+            }
+            if (String.IsNullOrEmpty(currentSid))
+                return false;
+
+            foreach (Process process in Process.GetProcessesByName("explorer"))
+            {
+                IntPtr processHandle = IntPtr.Zero;
+                IntPtr processToken = IntPtr.Zero;
+                try
+                {
+                    processHandle = OpenProcess(
+                        PROCESS_QUERY_LIMITED_INFORMATION,
+                        false,
+                        unchecked((uint)process.Id));
+                    if (processHandle == IntPtr.Zero)
+                        continue;
+
+                    if (!OpenProcessToken(
+                        processHandle,
+                        TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
+                        out processToken))
+                        continue;
+
+                    string candidateSid;
+                    using (WindowsIdentity candidate = new WindowsIdentity(processToken))
+                    {
+                        candidateSid = candidate.User == null ? null : candidate.User.Value;
+                    }
+                    if (!String.Equals(currentSid, candidateSid, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    TOKEN_ELEVATION elevation;
+                    int returned;
+                    if (!GetTokenInformationElevation(
+                        processToken,
+                        TokenElevation,
+                        out elevation,
+                        Marshal.SizeOf(typeof(TOKEN_ELEVATION)),
+                        out returned) || elevation.TokenIsElevated != 0)
+                        continue;
+
+                    int elevationType;
+                    if (!GetTokenInformationElevationType(
+                        processToken,
+                        TokenElevationType,
+                        out elevationType,
+                        sizeof(int),
+                        out returned) || elevationType != TokenElevationTypeLimited)
+                        continue;
+
+                    token = processToken;
+                    processToken = IntPtr.Zero;
+                    return true;
+                }
+                catch
+                {
+                    // Another desktop/session may expose an Explorer process we cannot query.
+                }
+                finally
+                {
+                    if (processToken != IntPtr.Zero) CloseHandle(processToken);
+                    if (processHandle != IntPtr.Zero) CloseHandle(processHandle);
+                    process.Dispose();
+                }
+            }
+            return false;
+        }
 
         private static string Quote(string value)
         {
@@ -293,7 +379,7 @@ namespace HerdrWebUi
         {
             IntPtr currentToken = IntPtr.Zero;
             IntPtr linkedToken = IntPtr.Zero;
-            IntPtr restrictedToken = IntPtr.Zero;
+            IntPtr desktopToken = IntPtr.Zero;
             IntPtr primaryToken = IntPtr.Zero;
             IntPtr childToken = IntPtr.Zero;
             IntPtr environment = IntPtr.Zero;
@@ -307,13 +393,10 @@ namespace HerdrWebUi
                     out currentToken))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
 
-                // Interactive UAC logons normally provide TokenLinkedToken. Windows OpenSSH can
-                // instead hand an administrator a full token with no linked standard token, so
-                // fall back to the documented LUA_TOKEN form of CreateRestrictedToken. Both stay
-                // in the caller's logon/session context, which keeps Herdr's ConPTY usable.
                 TOKEN_LINKED_TOKEN linked;
                 int returned;
                 IntPtr candidateToken;
+                bool candidateIsSameSession;
                 if (GetTokenInformationLinked(
                     currentToken,
                     TokenLinkedToken,
@@ -323,24 +406,19 @@ namespace HerdrWebUi
                 {
                     linkedToken = linked.LinkedToken;
                     candidateToken = linkedToken;
+                    candidateIsSameSession = true;
+                }
+                else if (TryOpenDesktopStandardToken(out desktopToken))
+                {
+                    candidateToken = desktopToken;
+                    candidateIsSameSession = false;
                 }
                 else
                 {
-                    if (!CreateRestrictedToken(
-                        currentToken,
-                        LUA_TOKEN,
-                        0,
-                        IntPtr.Zero,
-                        0,
-                        IntPtr.Zero,
-                        0,
-                        IntPtr.Zero,
-                        out restrictedToken))
-                        throw new Win32Exception(
-                            Marshal.GetLastWin32Error(),
-                            "Neither a linked standard token nor a LUA restricted token could be created"
-                        );
-                    candidateToken = restrictedToken;
+                    throw new InvalidOperationException(
+                        "No real non-elevated UAC token is available for this Windows account. " +
+                        "Sign in to the Windows desktop so Explorer is running, or use an Administrator session."
+                    );
                 }
 
                 if (!DuplicateTokenEx(
@@ -364,25 +442,47 @@ namespace HerdrWebUi
                 startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
                 environment = BuildEnvironmentBlock();
 
-                // No NEW_CONSOLE flag: descendants remain attached to Herdr's existing ConPTY.
-                bool created = CreateProcessAsUserW(
-                    primaryToken,
-                    file,
-                    commandLine,
-                    IntPtr.Zero,
-                    IntPtr.Zero,
-                    true,
-                    CREATE_UNICODE_ENVIRONMENT,
-                    environment,
-                    cwd,
-                    ref startup,
-                    out process);
-
-                int error = created ? 0 : Marshal.GetLastWin32Error();
-                if (!created && error == ERROR_PRIVILEGE_NOT_HELD)
+                // A linked token belongs to the caller's logon session, so normal inherited-handle
+                // creation keeps Herdr's ConPTY. A desktop token may belong to another Terminal
+                // Services session; CreateProcessWithTokenW deliberately creates in the caller's
+                // session, avoiding cross-session handle inheritance while keeping the real UAC token.
+                bool created;
+                int error = 0;
+                if (candidateIsSameSession)
                 {
-                    process = new PROCESS_INFORMATION();
-                    commandLine = new StringBuilder(commandLine.ToString());
+                    created = CreateProcessAsUserW(
+                        primaryToken,
+                        file,
+                        commandLine,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        true,
+                        CREATE_UNICODE_ENVIRONMENT,
+                        environment,
+                        cwd,
+                        ref startup,
+                        out process);
+                    error = created ? 0 : Marshal.GetLastWin32Error();
+
+                    if (!created && error == ERROR_PRIVILEGE_NOT_HELD)
+                    {
+                        process = new PROCESS_INFORMATION();
+                        commandLine = new StringBuilder(commandLine.ToString());
+                        created = CreateProcessWithTokenW(
+                            primaryToken,
+                            LOGON_WITH_PROFILE,
+                            file,
+                            commandLine,
+                            CREATE_UNICODE_ENVIRONMENT,
+                            environment,
+                            cwd,
+                            ref startup,
+                            out process);
+                        error = created ? 0 : Marshal.GetLastWin32Error();
+                    }
+                }
+                else
+                {
                     created = CreateProcessWithTokenW(
                         primaryToken,
                         LOGON_WITH_PROFILE,
@@ -435,7 +535,7 @@ namespace HerdrWebUi
                 if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
                 if (childToken != IntPtr.Zero) CloseHandle(childToken);
                 if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
-                if (restrictedToken != IntPtr.Zero) CloseHandle(restrictedToken);
+                if (desktopToken != IntPtr.Zero) CloseHandle(desktopToken);
                 if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
                 if (currentToken != IntPtr.Zero) CloseHandle(currentToken);
             }
