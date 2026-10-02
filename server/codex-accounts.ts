@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 
 import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
+import { psQuote } from "./powershell.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { runWindowsStandardPowerShell, startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
 
@@ -132,8 +133,8 @@ async function restartCodexDaemon(codexHome: string, _standardPaneId?: string): 
   if (!binary) return "Codex CLI was not found; existing background app-server processes may need a manual restart.";
   if (process.platform === "win32") {
     const command = [
-      "$env:CODEX_HOME=" + JSON.stringify(codexHome),
-      "& " + JSON.stringify(binary) + " app-server daemon restart",
+      "$env:CODEX_HOME=" + psQuote(codexHome),
+      "& " + psQuote(binary) + " app-server daemon restart",
       "exit $LASTEXITCODE",
     ].join("; ");
     try {
