@@ -1,6 +1,8 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  CodexAccountState,
+  CodexAccountSwitchResult,
   DirectoryListing,
   FileInfo,
   ConversationResponse,
@@ -30,6 +32,25 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 export function fetchUsage(refresh = false, machineId = "local"): Promise<UsageReport> {
   const base = machinePath(machineId, "usage");
   return getJson<UsageReport>(refresh ? `${base}?refresh=1` : base);
+}
+
+export function fetchCodexAccounts(machineId = "local"): Promise<CodexAccountState> {
+  return getJson<CodexAccountState>(machinePath(machineId, "codex/accounts"));
+}
+
+export async function saveCurrentCodexAccount(machineId = "local"): Promise<CodexAccountState> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "save" });
+  return (await response.json()) as CodexAccountState;
+}
+
+export async function removeCodexAccount(accountId: string, machineId = "local"): Promise<CodexAccountState> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "remove", account_id: accountId });
+  return (await response.json()) as CodexAccountState;
+}
+
+export async function switchCodexAccount(accountId: string, machineId = "local"): Promise<CodexAccountSwitchResult> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "switch", account_id: accountId });
+  return (await response.json()) as CodexAccountSwitchResult;
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
