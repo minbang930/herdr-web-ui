@@ -1004,12 +1004,15 @@ export function createServer(
           }
           try {
             const kind = payload.agent.kind as string;
-            const args = payload.agent.args as string[] | undefined;
+            const requestedArgs = payload.agent.args as string[] | undefined;
             if (runLevel === "standard") {
-              await startAgentInWindowsStandardShell(kind, created.root_pane.pane_id, args);
+              await startAgentInWindowsStandardShell(kind, created.root_pane.pane_id, requestedArgs);
             } else if (isShellAgentKind(kind)) {
-              await startShellAgent(kind, created.root_pane.pane_id, args);
+              await startShellAgent(kind, created.root_pane.pane_id, requestedArgs);
             } else {
+              const args = process.platform === "win32" && runLevel === "admin" && kind === "codex"
+                ? ["--no-daemon", ...(requestedArgs ?? [])]
+                : requestedArgs;
               await agentStart({
                 name: typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : payload.agent.kind as string,
                 kind,
