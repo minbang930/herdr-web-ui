@@ -79,8 +79,11 @@ namespace HerdrWebUi
     public static class StandardProcess
     {
         private const uint TOKEN_QUERY = 0x0008;
+        private const uint TOKEN_DUPLICATE = 0x0002;
         private const uint MAXIMUM_ALLOWED = 0x02000000;
         private const int TokenLinkedToken = 19;
+        private const int TokenElevation = 20;
+        private const uint LUA_TOKEN = 0x00000004;
         private const int SecurityImpersonation = 2;
         private const int TokenPrimary = 1;
         private const uint INFINITE = 0xffffffff;
@@ -92,6 +95,12 @@ namespace HerdrWebUi
         private struct TOKEN_LINKED_TOKEN
         {
             public IntPtr LinkedToken;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_ELEVATION
+        {
+            public int TokenIsElevated;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -133,6 +142,9 @@ namespace HerdrWebUi
         private static extern bool CloseHandle(IntPtr handle);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -145,13 +157,35 @@ namespace HerdrWebUi
             out IntPtr token
         );
 
-        [DllImport("advapi32.dll", SetLastError = true)]
-        private static extern bool GetTokenInformation(
+        [DllImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
+        private static extern bool GetTokenInformationLinked(
             IntPtr token,
             int tokenInformationClass,
             out TOKEN_LINKED_TOKEN tokenInformation,
             int tokenInformationLength,
             out int returnLength
+        );
+
+        [DllImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
+        private static extern bool GetTokenInformationElevation(
+            IntPtr token,
+            int tokenInformationClass,
+            out TOKEN_ELEVATION tokenInformation,
+            int tokenInformationLength,
+            out int returnLength
+        );
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool CreateRestrictedToken(
+            IntPtr existingToken,
+            uint flags,
+            uint disableSidCount,
+            IntPtr sidsToDisable,
+            uint deletePrivilegeCount,
+            IntPtr privilegesToDelete,
+            uint restrictedSidCount,
+            IntPtr sidsToRestrict,
+            out IntPtr newToken
         );
 
         [DllImport("advapi32.dll", SetLastError = true)]
@@ -259,7 +293,9 @@ namespace HerdrWebUi
         {
             IntPtr currentToken = IntPtr.Zero;
             IntPtr linkedToken = IntPtr.Zero;
+            IntPtr restrictedToken = IntPtr.Zero;
             IntPtr primaryToken = IntPtr.Zero;
+            IntPtr childToken = IntPtr.Zero;
             IntPtr environment = IntPtr.Zero;
             PROCESS_INFORMATION process = new PROCESS_INFORMATION();
 
@@ -267,26 +303,48 @@ namespace HerdrWebUi
             {
                 if (!OpenProcessToken(
                     GetCurrentProcess(),
-                    TOKEN_QUERY,
+                    TOKEN_QUERY | TOKEN_DUPLICATE,
                     out currentToken))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
 
+                // Interactive UAC logons normally provide TokenLinkedToken. Windows OpenSSH can
+                // instead hand an administrator a full token with no linked standard token, so
+                // fall back to the documented LUA_TOKEN form of CreateRestrictedToken. Both stay
+                // in the caller's logon/session context, which keeps Herdr's ConPTY usable.
                 TOKEN_LINKED_TOKEN linked;
                 int returned;
-                if (!GetTokenInformation(
+                IntPtr candidateToken;
+                if (GetTokenInformationLinked(
                     currentToken,
                     TokenLinkedToken,
                     out linked,
                     Marshal.SizeOf(typeof(TOKEN_LINKED_TOKEN)),
-                    out returned))
-                    throw new Win32Exception(
-                        Marshal.GetLastWin32Error(),
-                        "The elevated Windows account has no linked standard token"
-                    );
+                    out returned) && linked.LinkedToken != IntPtr.Zero)
+                {
+                    linkedToken = linked.LinkedToken;
+                    candidateToken = linkedToken;
+                }
+                else
+                {
+                    if (!CreateRestrictedToken(
+                        currentToken,
+                        LUA_TOKEN,
+                        0,
+                        IntPtr.Zero,
+                        0,
+                        IntPtr.Zero,
+                        0,
+                        IntPtr.Zero,
+                        out restrictedToken))
+                        throw new Win32Exception(
+                            Marshal.GetLastWin32Error(),
+                            "Neither a linked standard token nor a LUA restricted token could be created"
+                        );
+                    candidateToken = restrictedToken;
+                }
 
-                linkedToken = linked.LinkedToken;
                 if (!DuplicateTokenEx(
-                    linkedToken,
+                    candidateToken,
                     MAXIMUM_ALLOWED,
                     IntPtr.Zero,
                     SecurityImpersonation,
@@ -341,6 +399,29 @@ namespace HerdrWebUi
                 if (!created)
                     throw new Win32Exception(error, "Could not create the standard-token child process");
 
+                // Match Codex's own Windows daemon guard exactly: TokenElevation must report 0.
+                if (!OpenProcessToken(process.hProcess, TOKEN_QUERY, out childToken))
+                {
+                    TerminateProcess(process.hProcess, 125);
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not verify the child process token");
+                }
+                TOKEN_ELEVATION elevation;
+                if (!GetTokenInformationElevation(
+                    childToken,
+                    TokenElevation,
+                    out elevation,
+                    Marshal.SizeOf(typeof(TOKEN_ELEVATION)),
+                    out returned))
+                {
+                    TerminateProcess(process.hProcess, 125);
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not query the child process elevation");
+                }
+                if (elevation.TokenIsElevated != 0)
+                {
+                    TerminateProcess(process.hProcess, 125);
+                    throw new InvalidOperationException("The requested standard-token child is still elevated");
+                }
+
                 WaitForSingleObject(process.hProcess, INFINITE);
                 uint exitCode;
                 if (!GetExitCodeProcess(process.hProcess, out exitCode))
@@ -352,7 +433,9 @@ namespace HerdrWebUi
                 if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
                 if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
                 if (environment != IntPtr.Zero) Marshal.FreeHGlobal(environment);
+                if (childToken != IntPtr.Zero) CloseHandle(childToken);
                 if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+                if (restrictedToken != IntPtr.Zero) CloseHandle(restrictedToken);
                 if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
                 if (currentToken != IntPtr.Zero) CloseHandle(currentToken);
             }
