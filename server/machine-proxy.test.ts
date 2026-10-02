@@ -13,6 +13,7 @@ const remote = Bun.serve({
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/usage") return Response.json({ providers: [{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }] });
+    if (path === "/api/codex/accounts") return Response.json({ supported: true, reason: null, current: { id: "a", email: "a@example.com", plan: "plus", saved: true }, accounts: [] });
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
     if (ifNoneMatch === "\"v1\"") return new Response(null, { status: 304, headers: { etag: "\"v1\"" } });
@@ -58,6 +59,20 @@ it("forwards a remote PC's subscription usage without exposing credentials", asy
   expect(response.status).toBe(200);
   const body = await response.json() as UsageReport;
   expect(body.providers).toEqual([{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }]);
+});
+
+it("forwards Codex account controls to the selected PC", async () => {
+  const url = "http://127.0.0.1/api/machines/pc1/codex/accounts";
+  const read = await handleMachineRequest(new Request(url), manager);
+  expect(read.status).toBe(200);
+  expect((await read.json() as { current: { email: string } }).current.email).toBe("a@example.com");
+
+  const changed = await handleMachineRequest(new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-herdr-machine": "1" },
+    body: JSON.stringify({ action: "switch", account_id: "abc" }),
+  }), manager);
+  expect(changed.status).toBe(200);
 });
 
 it("refuses a path with an empty segment instead of forwarding it as another route", async () => {
