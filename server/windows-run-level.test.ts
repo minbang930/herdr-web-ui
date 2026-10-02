@@ -96,7 +96,8 @@ describe("Windows session run levels", () => {
     expect(helper).not.toContain("private const uint LUA_TOKEN");
     expect(helper).toContain("TokenElevation");
     expect(helper).toContain("elevation.TokenIsElevated != 0");
-    expect(helper).toContain("HERDR_SOCKET_PATH");
+    expect(helper).toContain("Environment.GetEnvironmentVariables(EnvironmentVariableTarget.Process)");
+    expect(helper).toContain("if (!profileScoped.Contains(key))");
     expect((helper.match(/Add-Type -TypeDefinition/g) ?? [])).toHaveLength(1);
     expect(helper.trimEnd().endsWith("exit $code")).toBe(true);
   });
