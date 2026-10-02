@@ -638,4 +638,6 @@ export const ZH: Record<string, string> = {
   "Administrator": "管理员",
   "Recommended. Codex background daemon and normal development tools run without elevation.": "推荐。Codex 后台守护进程和常规开发工具无需提升权限即可运行。",
   "Use only when this session needs administrator rights.": "仅在此会话确实需要管理员权限时使用。",
+  "Admin": "管理员",
+  "Administrator session": "管理员会话",
 };
