@@ -17,6 +17,28 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+function snapshotWithRunLevel(level?: "standard" | "admin"): SessionSnapshot {
+  return {
+    agents: [],
+    layouts: [],
+    panes: [],
+    protocol: 1,
+    tabs: [],
+    version: "test",
+    workspaces: [{
+      active_tab_id: "t1",
+      agent_status: "unknown",
+      focused: false,
+      label: "Test",
+      number: 1,
+      pane_count: 1,
+      tab_count: 1,
+      ...(level ? { tokens: { herdr_web_run_level: level } } : {}),
+      workspace_id: "w1",
+    }],
+  };
+}
+
 describe("Windows session run levels", () => {
   it("uses the same canonical Windows executables as herdr for common agents", () => {
     expect(canonicalWindowsAgentExecutable("codex")).toBe("codex");
@@ -86,13 +108,9 @@ describe("Windows session run levels", () => {
 
   it("reads persistent run-level metadata from the pane's workspace", () => {
     const pane = { pane_id: "w1:p1", workspace_id: "w1" } as HerdrPane;
-    const standard = {
-      workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "standard" } }],
-    } as SessionSnapshot;
-    const admin = {
-      workspaces: [{ workspace_id: "w1", tokens: { herdr_web_run_level: "admin" } }],
-    } as SessionSnapshot;
-    const old = { workspaces: [{ workspace_id: "w1" }] } as SessionSnapshot;
+    const standard = snapshotWithRunLevel("standard");
+    const admin = snapshotWithRunLevel("admin");
+    const old = snapshotWithRunLevel();
 
     expect(workspaceRunLevel(standard, pane)).toBe("standard");
     expect(workspaceRunLevel(admin, pane)).toBe("admin");
