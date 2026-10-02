@@ -613,4 +613,18 @@ export const ZH: Record<string, string> = {
   "This PC is not connected.": "此电脑未连接。",
   // ---- multi-PC usage ----
   "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "显示所有已连接电脑上的 AI 套餐用量。开启后，每台电脑会读取自己的 CLI 登录信息并查询对应提供商的用量端点；凭据不会离开该电脑。",
+  // ---- Codex account switching ----
+  "Wait for the current Codex response to finish, then switch again.": "请等待当前 Codex 响应结束后再切换。",
+  "Loading Codex accounts…": "正在加载 Codex 账户…",
+  "Codex accounts unavailable": "Codex 账户不可用",
+  "Codex accounts": "Codex 账户",
+  "Active": "当前使用",
+  "Saving…": "正在保存…",
+  "Save current account": "保存当前账户",
+  "Switching…": "正在切换…",
+  "Switch": "切换",
+  "One-click switching requires Codex's file credential store on this PC.": "一键切换要求此电脑上的 Codex 使用文件凭据存储。",
+  "The current Codex auth file is not a ChatGPT sign-in.": "当前 Codex 认证文件不是 ChatGPT 登录信息。",
+  "Sign in to Codex on this PC once, then save the current account here.": "先在此电脑上登录一次 Codex，然后在这里保存当前账户。",
+  "Save each Codex account once. After that, switching does not require browser login.": "每个 Codex 账户只需保存一次，之后切换时无需再通过浏览器登录。",
 };
