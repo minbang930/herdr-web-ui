@@ -124,6 +124,19 @@ function siblingDirs(home: string, prefix: string): string[] {
   }
 }
 
+/** direct child directories of a private profile store */
+function childDirs(parent: string | undefined): string[] {
+  if (!parent) return [];
+  try {
+    return readdirSync(parent, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(parent, entry.name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 /** a keychain read as found sign-ins: none, the one, or a locked item */
 function keychainFound(result: SignIn | "locked" | null, source: string, account: Account | null = null): Found[] {
   if (result === null) return [];
@@ -339,7 +352,13 @@ const codex: UsageProvider = {
   id: "codex",
   async signIns(ctx) {
     // CODEX_HOME points Codex elsewhere; ~/.codex-* is where a second account usually lives
-    const homes = [ctx.env["CODEX_HOME"], join(ctx.home, ".config", "codex"), join(ctx.home, ".codex"), ...siblingDirs(ctx.home, ".codex-")];
+    const homes = [
+      ctx.env["CODEX_HOME"],
+      join(ctx.home, ".config", "codex"),
+      join(ctx.home, ".codex"),
+      ...siblingDirs(ctx.home, ".codex-"),
+      ...childDirs(ctx.env["HERDR_WEB_CODEX_ACCOUNTS_DIR"]),
+    ];
     const found: Found[] = [];
     for (const home of new Set(homes.filter((home): home is string => Boolean(home)))) {
       const signIn = codexSignIn(readText(join(home, "auth.json")));
@@ -788,6 +807,13 @@ export class UsageService {
   private pendingRefresh = false;
 
   constructor(private readonly ctx: UsageContext = systemUsageContext(), private readonly providers: readonly UsageProvider[] = USAGE_PROVIDERS) {}
+
+  /** Forget one provider immediately after its credentials change. */
+  invalidate(provider: UsageProviderId): void {
+    this.searches.delete(provider);
+    for (const key of [...this.entries.keys()]) if (key.startsWith(provider + "|")) this.entries.delete(key);
+    for (const key of [...this.backoffs.keys()]) if (key.startsWith(provider + ":") || key.startsWith(provider + "#")) this.backoffs.delete(key);
+  }
 
   /**
    * `refresh` asks again sooner than FRESH_MS. Concurrent callers share one pass; a refresh that
