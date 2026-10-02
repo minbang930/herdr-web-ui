@@ -54,6 +54,7 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
+import { CodexAccountService, handleCodexAccountRequest } from "./codex-accounts.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -268,8 +269,10 @@ export function createServer(
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
-  const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  const stateDir = options.stateDir ?? defaultStateDir();
+  const devices = new DeviceStore(stateDir);
   const usage = options.usage ?? new UsageService();
+  const codexAccounts = new CodexAccountService(stateDir, options.codexHome, () => usage.invalidate("codex"));
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
@@ -796,7 +799,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|usage|codex\/accounts|pane\/|workspace\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : 80);
@@ -845,6 +848,7 @@ export function createServer(
       }
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
+      if (pathname === "/api/codex/accounts") return handleCodexAccountRequest(request, url, codexAccounts);
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
