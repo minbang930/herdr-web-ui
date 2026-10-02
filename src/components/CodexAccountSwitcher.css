@@ -90,3 +90,35 @@
 .codex-account-error {
   color: var(--status-blocked);
 }
+
+.codex-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.codex-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.codex-import-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.codex-import-source {
+  max-width: 6rem;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
