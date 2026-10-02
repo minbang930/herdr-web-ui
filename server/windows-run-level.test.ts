@@ -75,6 +75,10 @@ describe("Windows session run levels", () => {
     expect(helper).toContain("CreateProcessAsUserW");
     expect(helper).toContain("CreateProcessWithTokenW");
     expect(helper).toContain("TokenLinkedToken");
+    expect(helper).toContain("CreateRestrictedToken");
+    expect(helper).toContain("LUA_TOKEN");
+    expect(helper).toContain("TokenElevation");
+    expect(helper).toContain("elevation.TokenIsElevated != 0");
     expect(helper).toContain("HERDR_SOCKET_PATH");
     expect((helper.match(/Add-Type -TypeDefinition/g) ?? [])).toHaveLength(1);
     expect(helper.trimEnd().endsWith("exit $code")).toBe(true);
