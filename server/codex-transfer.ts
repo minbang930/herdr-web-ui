@@ -49,9 +49,9 @@ async function action<T>(
   body: { action: string; [key: string]: unknown },
 ): Promise<T> {
   if (machineId !== "local") return remoteAction<T>(manager, machineId, body);
-  if (body.action === "import_begin") return local.beginImport() as T;
-  if (body.action === "export_sealed") return local.exportSealed(String(body.account_id ?? ""), String(body.public_key ?? "")) as T;
-  if (body.action === "import_sealed") return local.importSealed(String(body.transfer_id ?? ""), body.sealed as CodexSealedAccount) as T;
+  if (body.action === "import_begin") return local.beginImport() as unknown as T;
+  if (body.action === "export_sealed") return local.exportSealed(String(body.account_id ?? ""), String(body.public_key ?? "")) as unknown as T;
+  if (body.action === "import_sealed") return local.importSealed(String(body.transfer_id ?? ""), body.sealed as CodexSealedAccount) as unknown as T;
   throw new CodexTransferError("invalid_action", "Unknown local Codex transfer action.");
 }
 
