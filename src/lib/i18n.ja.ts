@@ -636,4 +636,6 @@ export const JA: Record<string, string> = {
   "Administrator": "管理者",
   "Recommended. Codex background daemon and normal development tools run without elevation.": "推奨。Codex のバックグラウンドデーモンと通常の開発ツールを昇格なしで実行します。",
   "Use only when this session needs administrator rights.": "このセッションに管理者権限が必要な場合のみ使用してください。",
+  "Admin": "管理者",
+  "Administrator session": "管理者セッション",
 };
