@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import {
   canonicalWindowsAgentExecutable,
+  windowsAgentArgs,
   windowsStandardBootstrapCommand,
   WindowsRunLevelStore,
   workspaceRunLevel,
@@ -46,6 +47,12 @@ describe("Windows session run levels", () => {
     expect(canonicalWindowsAgentExecutable("cursor")).toBe("cursor-agent.cmd");
     expect(canonicalWindowsAgentExecutable("kiro")).toBe("kiro-cli");
     expect(canonicalWindowsAgentExecutable("not-an-agent")).toBeNull();
+  });
+
+  it("always isolates Windows Codex from the shared daemon", () => {
+    expect(windowsAgentArgs("codex")).toEqual(["--no-daemon"]);
+    expect(windowsAgentArgs("codex", ["resume", "thread-id"])).toEqual(["--no-daemon", "resume", "thread-id"]);
+    expect(windowsAgentArgs("claude", ["--verbose"])).toEqual(["--verbose"]);
   });
 
   it("boots the linked-token helper and never falls back to the outer PowerShell prompt", () => {
