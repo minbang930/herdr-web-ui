@@ -1,8 +1,11 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  CodexAccountImportResult,
   CodexAccountState,
   CodexAccountSwitchResult,
+  CodexImportTicket,
+  CodexSealedAccount,
   DirectoryListing,
   FileInfo,
   ConversationResponse,
@@ -51,6 +54,47 @@ export async function removeCodexAccount(accountId: string, machineId = "local")
 export async function switchCodexAccount(accountId: string, machineId = "local"): Promise<CodexAccountSwitchResult> {
   const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "switch", account_id: accountId });
   return (await response.json()) as CodexAccountSwitchResult;
+}
+
+export async function beginCodexAccountImport(machineId = "local"): Promise<CodexImportTicket> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "import_begin" });
+  return (await response.json()) as CodexImportTicket;
+}
+
+export async function exportCodexAccountSealed(accountId: string, publicKey: string, machineId = "local"): Promise<CodexSealedAccount> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", {
+    action: "export_sealed",
+    account_id: accountId,
+    public_key: publicKey,
+  });
+  return (await response.json()) as CodexSealedAccount;
+}
+
+export async function importCodexAccountSealed(
+  transferId: string,
+  sealed: CodexSealedAccount,
+  machineId = "local",
+): Promise<CodexAccountImportResult> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", {
+    action: "import_sealed",
+    transfer_id: transferId,
+    sealed,
+  });
+  return (await response.json()) as CodexAccountImportResult;
+}
+
+/**
+ * End-to-end encrypted PC-to-PC account copy:
+ * only an ephemeral public key and ciphertext pass through the browser/connection server.
+ */
+export async function copyCodexAccountBetweenMachines(
+  sourceMachineId: string,
+  targetMachineId: string,
+  accountId: string,
+): Promise<CodexAccountImportResult> {
+  const ticket = await beginCodexAccountImport(targetMachineId);
+  const sealed = await exportCodexAccountSealed(accountId, ticket.public_key, sourceMachineId);
+  return importCodexAccountSealed(ticket.transfer_id, sealed, targetMachineId);
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
