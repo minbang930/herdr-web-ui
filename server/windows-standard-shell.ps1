@@ -79,8 +79,6 @@ namespace HerdrWebUi
     public static class StandardProcess
     {
         private const uint TOKEN_QUERY = 0x0008;
-        private const uint TOKEN_DUPLICATE = 0x0002;
-        private const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
         private const uint MAXIMUM_ALLOWED = 0x02000000;
         private const int TokenLinkedToken = 19;
         private const int SecurityImpersonation = 2;
@@ -269,7 +267,7 @@ namespace HerdrWebUi
             {
                 if (!OpenProcessToken(
                     GetCurrentProcess(),
-                    TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
+                    TOKEN_QUERY,
                     out currentToken))
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken failed");
 
