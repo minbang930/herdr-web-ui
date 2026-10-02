@@ -114,6 +114,47 @@ describe("Codex managed accounts", () => {
     expect(result.state.current?.email).toBe("a@example.com");
   });
 
+  it("copies an account source-to-destination without exposing plaintext in transit", () => {
+    const sourceDirs = dirs();
+    const targetDirs = dirs();
+    const sourceAuth = auth("source@example.com", "source-user", "source-workspace", "pro");
+    const targetAuth = auth("target@example.com", "target-user", "target-workspace", "plus");
+    writeFileSync(join(sourceDirs.home, "auth.json"), sourceAuth);
+    writeFileSync(join(targetDirs.home, "auth.json"), targetAuth);
+
+    const source = new CodexAccountService(sourceDirs.state, sourceDirs.home);
+    const target = new CodexAccountService(targetDirs.state, targetDirs.home);
+    const sourceId = source.state().current!.id;
+
+    const ticket = target.beginImport();
+    const sealed = source.exportSealed(sourceId, ticket.public_key);
+    expect(JSON.stringify(sealed)).not.toContain("source@example.com");
+    expect(JSON.stringify(sealed)).not.toContain("refresh-source-user");
+
+    const imported = target.importSealed(ticket.transfer_id, sealed);
+    expect(imported.imported_account_id).toBe(sourceId);
+    expect(imported.state.current?.email).toBe("target@example.com");
+    expect(imported.state.accounts.some((account) => account.email === "source@example.com")).toBe(true);
+    expect(parseCodexAuth(readFileSync(join(targetDirs.home, "auth.json"), "utf8"))?.email).toBe("target@example.com");
+  });
+
+  it("makes encrypted import tickets one-time and rejects tampering", () => {
+    const sourceDirs = dirs();
+    const targetDirs = dirs();
+    writeFileSync(join(sourceDirs.home, "auth.json"), auth("source@example.com", "source-user", "source-workspace"));
+    writeFileSync(join(targetDirs.home, "auth.json"), auth("target@example.com", "target-user", "target-workspace"));
+
+    const source = new CodexAccountService(sourceDirs.state, sourceDirs.home);
+    const target = new CodexAccountService(targetDirs.state, targetDirs.home);
+    const sourceId = source.state().current!.id;
+    const ticket = target.beginImport();
+    const sealed = source.exportSealed(sourceId, ticket.public_key);
+    const tampered = { ...sealed, ciphertext: sealed.ciphertext.slice(0, -1) + (sealed.ciphertext.endsWith("A") ? "B" : "A") };
+
+    expect(() => target.importSealed(ticket.transfer_id, tampered)).toThrow("could not be decrypted");
+    expect(() => target.importSealed(ticket.transfer_id, sealed)).toThrow("expired");
+  });
+
   it("does not change auth while a Codex pane is working", async () => {
     const { state, home } = dirs();
     const a = auth("a@example.com", "user-a", "workspace-a");
