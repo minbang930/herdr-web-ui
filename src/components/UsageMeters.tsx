@@ -156,7 +156,7 @@ export function UsageMeters({ machines = [] }: { machines?: readonly Machine[] }
           </header>
           {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
           {codexMachines.map(([machineId, machineName]) => (
-            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} onUsageRefresh={refresh} />
+            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} machines={machines} onUsageRefresh={refresh} />
           ))}
         </div>
       )}
@@ -230,7 +230,7 @@ export function UsagePanel({ machines = [] }: { machines?: readonly Machine[] })
           </header>
           {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
           {codexMachines.map(([machineId, machineName]) => (
-            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} onUsageRefresh={refresh} />
+            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} machines={machines} onUsageRefresh={refresh} />
           ))}
         </div>
       )}
