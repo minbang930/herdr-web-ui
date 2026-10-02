@@ -301,6 +301,7 @@ export async function restartCodexDaemonInWindowsStandardShell(
   codexHome: string,
   timeoutMs = 15_000,
 ): Promise<string | null> {
+  await ensureWindowsStandardShell(paneId);
   const codex = Bun.which("codex", { PATH: process.env["PATH"] ?? "" }) ?? "codex";
   const nonce = randomBytes(16).toString("hex");
   const marker = "__HERDR_WEB_CODEX_DAEMON_" + nonce + "__";
