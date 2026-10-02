@@ -392,6 +392,17 @@ export interface WorkspaceCreated {
   error?: { code: string; message: string };
 }
 
+export type SessionRunLevel = "standard" | "admin";
+
+export interface SessionCapabilities {
+  /** null on non-Windows hosts where per-session Windows elevation does not apply */
+  default_run_level: SessionRunLevel | null;
+  /** empty on non-Windows; Windows always supports standard and adds admin when the herdr server is elevated */
+  run_levels: SessionRunLevel[];
+  /** whether the process hosting herdr/its panes currently owns an elevated Windows token */
+  server_elevated: boolean | null;
+}
+
 /** GET /api/pane/commands: one slash command the pane's agent understands. */
 export interface SlashCommand {
   /** without the leading slash (or `$`) */
