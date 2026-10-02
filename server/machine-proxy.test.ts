@@ -13,6 +13,7 @@ const remote = Bun.serve({
     if (path === "/api/pane/conversation/image") return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { "content-type": "image/png" } });
     if (path === "/api/pane/conversation/tool-output") return new Response("complete remote output", { headers: { "content-type": "text/plain; charset=utf-8" } });
     if (path === "/api/usage") return Response.json({ providers: [{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }] });
+    if (path === "/api/session-capabilities") return Response.json({ default_run_level: "standard", run_levels: ["standard", "admin"], server_elevated: true });
     if (path === "/api/codex/accounts") return Response.json({ supported: true, reason: null, current: { id: "a", email: "a@example.com", plan: "plus", saved: true }, accounts: [] });
     const ifNoneMatch = request.headers.get("if-none-match");
     asked.push(ifNoneMatch);
@@ -59,6 +60,12 @@ it("forwards a remote PC's subscription usage without exposing credentials", asy
   expect(response.status).toBe(200);
   const body = await response.json() as UsageReport;
   expect(body.providers).toEqual([{ id: "codex", key: "codex:test", account: "test@example.com", plan: "plus", windows: [], problem: null, checked_at: null }]);
+});
+
+it("forwards Windows session run-level capabilities", async () => {
+  const response = await handleMachineRequest(new Request("http://127.0.0.1/api/machines/pc1/session-capabilities"), manager);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ default_run_level: "standard", run_levels: ["standard", "admin"], server_elevated: true });
 });
 
 it("forwards Codex account controls to the selected PC", async () => {
