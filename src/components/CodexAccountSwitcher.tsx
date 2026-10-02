@@ -6,7 +6,7 @@ import "./CodexAccountSwitcher.css";
 
 import type { CodexAccountState } from "../../shared/protocol.ts";
 import { ApiError, fetchCodexAccounts, saveCurrentCodexAccount, switchCodexAccount } from "../lib/api.ts";
-import { useT } from "../lib/i18n.ts";
+import { useT, type Translate } from "../lib/i18n.ts";
 
 export interface CodexAccountSwitcherProps {
   machineId: string;
@@ -19,10 +19,10 @@ function accountLabel(email: string | null, plan: string | null): string {
   return email ?? plan ?? "Codex account";
 }
 
-function unavailableText(reason: CodexAccountState["reason"]): string {
-  if (reason === "non_file_store") return "One-click switching requires Codex's file credential store on this PC.";
-  if (reason === "unsupported_auth") return "The current Codex auth file is not a ChatGPT sign-in.";
-  return "Sign in to Codex on this PC once, then save the current account here.";
+function unavailableText(t: Translate, reason: CodexAccountState["reason"]): string {
+  if (reason === "non_file_store") return t("One-click switching requires Codex's file credential store on this PC.");
+  if (reason === "unsupported_auth") return t("The current Codex auth file is not a ChatGPT sign-in.");
+  return t("Sign in to Codex on this PC once, then save the current account here.");
 }
 
 export function CodexAccountSwitcher({ machineId, machineName, onUsageRefresh }: CodexAccountSwitcherProps) {
@@ -124,7 +124,7 @@ export function CodexAccountSwitcher({ machineId, machineName, onUsageRefresh }:
         </div>
       )}
 
-      {!state.supported && <p className="codex-account-note">{t(unavailableText(state.reason))}</p>}
+      {!state.supported && <p className="codex-account-note">{unavailableText(t, state.reason)}</p>}
       {state.supported && state.accounts.length < 2 && (
         <p className="codex-account-note">{t("Save each Codex account once. After that, switching does not require browser login.")}</p>
       )}
