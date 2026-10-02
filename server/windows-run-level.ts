@@ -46,8 +46,9 @@ export class WindowsRunLevelStore {
   }
 
   /** Drop workspaces Herdr no longer knows, then restore browser-visible metadata after restart. */
-  async reapply(snapshot: SessionSnapshot = await sessionSnapshot()): Promise<void> {
-    const live = new Set(snapshot.workspaces.map((workspace) => workspace.workspace_id));
+  async reapply(snapshot?: SessionSnapshot): Promise<void> {
+    const current = snapshot ?? await sessionSnapshot();
+    const live = new Set(current.workspaces.map((workspace) => workspace.workspace_id));
     let changed = false;
     for (const workspaceId of [...this.levels.keys()]) {
       if (live.has(workspaceId)) continue;
