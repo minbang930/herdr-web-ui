@@ -58,6 +58,7 @@ import { handleUsageRequest, UsageService } from "./usage.ts";
 import { CodexAccountService, handleCodexAccountRequest, handleCodexTransferRequest } from "./codex-accounts.ts";
 import { enterWindowsStandardShell, sessionCapabilities, startAgentInWindowsStandardShell, windowsAgentArgs, WindowsRunLevelStore } from "./windows-run-level.ts";
 import { handleCodexCrossMachineTransfer } from "./codex-transfer.ts";
+import { nextAgentName } from "./agent-name.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -1023,13 +1024,28 @@ export function createServer(
             } else if (isShellAgentKind(kind)) {
               await startShellAgent(kind, created.root_pane.pane_id, args);
             } else {
-              await agentStart({
-                name: typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : payload.agent.kind as string,
-                kind,
-                paneId: created.root_pane.pane_id,
-                ...(args === undefined ? {} : { args }),
-                timeoutMs: 60_000,
-              });
+              const explicitName = typeof payload.agent.name === "string" && payload.agent.name.length > 0
+                ? payload.agent.name
+                : null;
+              const name = explicitName ?? nextAgentName(kind, await sessionSnapshot());
+              try {
+                await agentStart({
+                  name,
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(args === undefined ? {} : { args }),
+                  timeoutMs: 60_000,
+                });
+              } catch (error) {
+                if (explicitName !== null || !(error instanceof HerdrError) || error.code !== "agent_name_taken") throw error;
+                await agentStart({
+                  name: nextAgentName(kind, await sessionSnapshot()),
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(args === undefined ? {} : { args }),
+                  timeoutMs: 60_000,
+                });
+              }
             }
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: true });
           } catch (error) {
