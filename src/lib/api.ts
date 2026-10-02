@@ -4,8 +4,6 @@ import type {
   CodexAccountImportResult,
   CodexAccountState,
   CodexAccountSwitchResult,
-  CodexImportTicket,
-  CodexSealedAccount,
   DirectoryListing,
   FileInfo,
   ConversationResponse,
@@ -56,45 +54,21 @@ export async function switchCodexAccount(accountId: string, machineId = "local")
   return (await response.json()) as CodexAccountSwitchResult;
 }
 
-export async function beginCodexAccountImport(machineId = "local"): Promise<CodexImportTicket> {
-  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "import_begin" });
-  return (await response.json()) as CodexImportTicket;
-}
-
-export async function exportCodexAccountSealed(accountId: string, publicKey: string, machineId = "local"): Promise<CodexSealedAccount> {
-  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", {
-    action: "export_sealed",
-    account_id: accountId,
-    public_key: publicKey,
-  });
-  return (await response.json()) as CodexSealedAccount;
-}
-
-export async function importCodexAccountSealed(
-  transferId: string,
-  sealed: CodexSealedAccount,
-  machineId = "local",
-): Promise<CodexAccountImportResult> {
-  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", {
-    action: "import_sealed",
-    transfer_id: transferId,
-    sealed,
-  });
-  return (await response.json()) as CodexAccountImportResult;
-}
-
 /**
- * End-to-end encrypted PC-to-PC account copy:
- * only an ephemeral public key and ciphertext pass through the browser/connection server.
+ * Copy one saved/current Codex account between connected PCs. The connection server only
+ * orchestrates an encrypted source -> destination transfer and never receives plaintext auth.
  */
 export async function copyCodexAccountBetweenMachines(
   sourceMachineId: string,
   targetMachineId: string,
   accountId: string,
 ): Promise<CodexAccountImportResult> {
-  const ticket = await beginCodexAccountImport(targetMachineId);
-  const sealed = await exportCodexAccountSealed(accountId, ticket.public_key, sourceMachineId);
-  return importCodexAccountSealed(ticket.transfer_id, sealed, targetMachineId);
+  const response = await sendJson("/api/codex/account-transfer", "POST", {
+    source_machine_id: sourceMachineId,
+    target_machine_id: targetMachineId,
+    account_id: accountId,
+  });
+  return (await response.json()) as CodexAccountImportResult;
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
