@@ -149,7 +149,7 @@ describe("Codex managed accounts", () => {
     const sourceId = source.state().current!.id;
     const ticket = target.beginImport();
     const sealed = source.exportSealed(sourceId, ticket.public_key);
-    const tampered = { ...sealed, ciphertext: sealed.ciphertext.slice(0, -1) + (sealed.ciphertext.endsWith("A") ? "B" : "A") };
+    const tampered = { ...sealed, ciphertext: (sealed.ciphertext.startsWith("A") ? "B" : "A") + sealed.ciphertext.slice(1) };
 
     expect(() => target.importSealed(ticket.transfer_id, tampered)).toThrow("could not be decrypted");
     expect(() => target.importSealed(ticket.transfer_id, sealed)).toThrow("expired");
