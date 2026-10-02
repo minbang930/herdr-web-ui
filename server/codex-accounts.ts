@@ -134,6 +134,10 @@ async function restartCodexDaemon(codexHome: string, _standardPaneId?: string): 
   if (process.platform === "win32") {
     const command = [
       "$env:CODEX_HOME=" + psQuote(codexHome),
+      "$__raw = (& " + psQuote(binary) + " app-server daemon version 2>$null | Out-String)",
+      "if ($LASTEXITCODE -ne 0) { exit 0 }",
+      "try { $__status = ($__raw | ConvertFrom-Json).status } catch { exit 0 }",
+      "if ($__status -ne 'running') { exit 0 }",
       "& " + psQuote(binary) + " app-server daemon restart",
       "exit $LASTEXITCODE",
     ].join("; ");
