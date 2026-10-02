@@ -634,4 +634,6 @@ export const KO: Record<string, string> = {
   "Administrator": "관리자",
   "Recommended. Codex background daemon and normal development tools run without elevation.": "권장. Codex 백그라운드 데몬과 일반 개발 도구를 관리자 권한 없이 실행합니다.",
   "Use only when this session needs administrator rights.": "이 세션에 관리자 권한이 필요할 때만 사용하세요.",
+  "Admin": "관리자",
+  "Administrator session": "관리자 세션",
 };
