@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
 import { psQuote } from "./powershell.ts";
+import { AgentNameAllocator } from "./agent-name.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
 import { runWindowsStandardPowerShell, startAgentInWindowsStandardShell, windowsAgentArgs, workspaceRunLevel } from "./windows-run-level.ts";
 
@@ -393,6 +394,12 @@ export class CodexAccountService {
           409,
         );
       }
+      const names = new AgentNameAllocator(snapshot);
+      const namedByPane = new Map(
+        snapshot.agents
+          .filter((agent) => agent.name)
+          .map((agent) => [agent.pane_id, agent.name!] as const),
+      );
       const resumable: ResumePane[] = running.map((pane) => {
         const sessionId = codexResumeTarget(pane);
         if (!sessionId) throw new CodexAccountError(
@@ -400,9 +407,10 @@ export class CodexAccountService {
           "Codex pane " + pane.pane_id + " has no resumable session id; close it before switching accounts.",
           409,
         );
+        const existingName = namedByPane.get(pane.pane_id);
         return {
           paneId: pane.pane_id,
-          name: pane.agent ?? "codex",
+          name: existingName ? names.reservePreferred(existingName) : names.next("codex"),
           sessionId,
           runLevel: workspaceRunLevel(snapshot, pane, this.runLevelForWorkspace),
         };
