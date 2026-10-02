@@ -611,4 +611,18 @@ export const JA: Record<string, string> = {
   "This PC is not connected.": "この PC は接続されていません。",
   // ---- multi-PC usage ----
   "Across connected PCs, how much of each AI plan has been used. Turning it on asks each PC to read its own CLI sign-in and query that provider's usage endpoint; credentials never leave that PC.": "接続中のすべての PC で各 AI プランの使用量を表示します。有効にすると各 PC が自身の CLI サインインを読み、そのプロバイダーの使用量エンドポイントへ問い合わせます。認証情報がその PC の外へ出ることはありません。",
+  // ---- Codex account switching ----
+  "Wait for the current Codex response to finish, then switch again.": "現在の Codex の応答が終わってから、もう一度切り替えてください。",
+  "Loading Codex accounts…": "Codex アカウントを読み込み中…",
+  "Codex accounts unavailable": "Codex アカウントを利用できません",
+  "Codex accounts": "Codex アカウント",
+  "Active": "使用中",
+  "Saving…": "保存中…",
+  "Save current account": "現在のアカウントを保存",
+  "Switching…": "切り替え中…",
+  "Switch": "切り替え",
+  "One-click switching requires Codex's file credential store on this PC.": "ワンクリック切り替えには、この PC の Codex がファイル認証情報ストアを使用している必要があります。",
+  "The current Codex auth file is not a ChatGPT sign-in.": "現在の Codex 認証ファイルは ChatGPT のサインイン情報ではありません。",
+  "Sign in to Codex on this PC once, then save the current account here.": "この PC で一度 Codex にサインインしてから、現在のアカウントをここに保存してください。",
+  "Save each Codex account once. After that, switching does not require browser login.": "各 Codex アカウントを一度保存すれば、その後はブラウザでのログインなしで切り替えられます。",
 };
