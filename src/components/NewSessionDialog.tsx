@@ -165,9 +165,9 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
                   </button>
                 ))}
               </div>
-              <span className="field-hint">{t(runLevel === "standard"
-                ? "Recommended. Codex background daemon and normal development tools run without elevation."
-                : "Use only when this session needs administrator rights.")}</span>
+              <span className="field-hint">{runLevel === "standard"
+                ? t("Recommended. Codex background daemon and normal development tools run without elevation.")
+                : t("Use only when this session needs administrator rights.")}</span>
             </div>
           )}
           <div className="field">
