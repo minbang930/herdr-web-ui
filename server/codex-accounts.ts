@@ -16,9 +16,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
+import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchResult, CodexImportTicket, CodexManagedAccount, CodexSealedAccount, HerdrPane, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { jsonResponse } from "./http.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
+import { startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
 
 const ACCOUNT_ID_RE = /^[a-f0-9]{24}$/;
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
@@ -114,6 +115,7 @@ interface ResumePane {
   paneId: string;
   name: string;
   sessionId: string;
+  runLevel: SessionRunLevel | null;
 }
 
 export interface CodexAccountRuntime {
@@ -149,6 +151,10 @@ const defaultRuntime: CodexAccountRuntime = {
   sendText: paneSendText,
   sendKeys: paneSendKeys,
   start: async (pane) => {
+    if (process.platform === "win32" && pane.runLevel === "standard") {
+      await startAgentInWindowsStandardShell("codex", pane.paneId, ["resume", pane.sessionId], 60_000);
+      return;
+    }
     await agentStart({ name: pane.name, kind: "codex", paneId: pane.paneId, args: ["resume", pane.sessionId], timeoutMs: 60_000 });
   },
   sleep: Bun.sleep,
@@ -372,7 +378,12 @@ export class CodexAccountService {
           "Codex pane " + pane.pane_id + " has no resumable session id; close it before switching accounts.",
           409,
         );
-        return { paneId: pane.pane_id, name: pane.agent ?? "codex", sessionId };
+        return {
+          paneId: pane.pane_id,
+          name: pane.agent ?? "codex",
+          sessionId,
+          runLevel: workspaceRunLevel(snapshot, pane),
+        };
       });
 
       if (current) privateWrite(this.managedPath(current.id), current.raw);
