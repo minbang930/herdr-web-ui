@@ -628,4 +628,10 @@ export const KO: Record<string, string> = {
   "No new Codex accounts found on connected PCs.": "연결된 다른 PC에서 가져올 새 Codex 계정을 찾지 못했습니다.",
   "Importing…": "가져오는 중…",
   "Import": "가져오기",
+  // ---- Windows session privileges ----
+  "Privileges": "권한",
+  "Standard": "일반",
+  "Administrator": "관리자",
+  "Recommended. Codex background daemon and normal development tools run without elevation.": "권장. Codex 백그라운드 데몬과 일반 개발 도구를 관리자 권한 없이 실행합니다.",
+  "Use only when this session needs administrator rights.": "이 세션에 관리자 권한이 필요할 때만 사용하세요.",
 };
