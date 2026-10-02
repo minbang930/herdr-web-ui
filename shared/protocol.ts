@@ -198,6 +198,29 @@ export interface CodexAccountSwitchResult {
   readonly warnings: readonly string[];
 }
 
+/** One-time public key issued by the destination PC for an encrypted account transfer. */
+export interface CodexImportTicket {
+  readonly transfer_id: string;
+  /** X25519 public key in PEM form; it contains no credential material. */
+  readonly public_key: string;
+  readonly expires_at: string;
+}
+
+/** Auth encrypted source-PC -> destination-PC. The connection server/browser cannot decrypt it. */
+export interface CodexSealedAccount {
+  readonly version: 1;
+  readonly ephemeral_public_key: string;
+  readonly iv: string;
+  readonly ciphertext: string;
+  readonly tag: string;
+}
+
+/** POST /api/codex/accounts { action:"import" }: destination account slot after a sealed transfer. */
+export interface CodexAccountImportResult {
+  readonly state: CodexAccountState;
+  readonly imported_account_id: string;
+}
+
 /** How a request got in, when it did. */
 export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
 /** Why a request did not. */
