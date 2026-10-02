@@ -100,7 +100,7 @@ export function CodexAccountSwitcher({ machineId, machineName, onUsageRefresh }:
           {!state.current.saved && state.supported && (
             <button type="button" className="btn btn-small" disabled={pending !== null} onClick={() => void save()}>
               <Save aria-hidden="true" />
-              {t(pending === "save" ? "Saving…" : "Save current account")}
+              {pending === "save" ? t("Saving…") : t("Save current account")}
             </button>
           )}
         </div>
@@ -116,7 +116,7 @@ export function CodexAccountSwitcher({ machineId, machineName, onUsageRefresh }:
               ) : (
                 <button type="button" className="btn btn-small" disabled={pending !== null || !state.supported} onClick={() => void switchTo(account.id)}>
                   <ArrowRightLeft aria-hidden="true" />
-                  {t(pending === account.id ? "Switching…" : "Switch")}
+                  {pending === account.id ? t("Switching…") : t("Switch")}
                 </button>
               )}
             </div>
