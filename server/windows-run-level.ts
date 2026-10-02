@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { HerdrPane, SessionCapabilities, SessionRunLevel, SessionSnapshot } from "../shared/protocol.ts";
 import { herdrRpc, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
@@ -9,6 +10,68 @@ import { psQuote } from "./powershell.ts";
 const STANDARD_READY_PREFIX = "__HERDR_WEB_STANDARD_READY_";
 const STANDARD_START_TIMEOUT_MS = 12_000;
 const AGENT_START_TIMEOUT_MS = 60_000;
+
+const RUN_LEVEL_FILE = "windows-session-run-levels.json";
+
+export class WindowsRunLevelStore {
+  private readonly path: string;
+  private levels = new Map<string, SessionRunLevel>();
+
+  constructor(stateDir: string) {
+    this.path = join(stateDir, RUN_LEVEL_FILE);
+    try {
+      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as Record<string, unknown>;
+      for (const [workspaceId, level] of Object.entries(parsed)) {
+        if (level === "standard" || level === "admin") this.levels.set(workspaceId, level);
+      }
+    } catch { /* first run or invalid stale state */ }
+  }
+
+  get(workspaceId: string): SessionRunLevel | null {
+    return this.levels.get(workspaceId) ?? null;
+  }
+
+  set(workspaceId: string, level: SessionRunLevel): void {
+    this.levels.set(workspaceId, level);
+    this.save();
+  }
+
+  delete(workspaceId: string): void {
+    if (!this.levels.delete(workspaceId)) return;
+    this.save();
+  }
+
+  entries(): readonly (readonly [string, SessionRunLevel])[] {
+    return [...this.levels.entries()];
+  }
+
+  /** Drop workspaces Herdr no longer knows, then restore browser-visible metadata after restart. */
+  async reapply(snapshot: SessionSnapshot = await sessionSnapshot()): Promise<void> {
+    const live = new Set(snapshot.workspaces.map((workspace) => workspace.workspace_id));
+    let changed = false;
+    for (const workspaceId of [...this.levels.keys()]) {
+      if (live.has(workspaceId)) continue;
+      this.levels.delete(workspaceId);
+      changed = true;
+    }
+    if (changed) this.save();
+    await Promise.allSettled([...this.levels].map(([workspaceId, level]) =>
+      herdrRpc("workspace.report_metadata", {
+        workspace_id: workspaceId,
+        source: "user:herdr-web-ui",
+        tokens: { herdr_web_run_level: level },
+      })));
+  }
+
+  private save(): void {
+    mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    const tmp = this.path + "." + process.pid + ".tmp";
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.levels), null, 2), { mode: 0o600 });
+    try { chmodSync(tmp, 0o600); } catch {}
+    renameSync(tmp, this.path);
+    try { chmodSync(this.path, 0o600); } catch {}
+  }
+}
 
 const WINDOWS_AGENT_EXECUTABLES: Readonly<Record<string, string>> = {
   pi: "pi",
@@ -238,8 +301,13 @@ export async function restartCodexDaemonInWindowsStandardShell(
 }
 
 
-export function workspaceRunLevel(snapshot: SessionSnapshot, pane: HerdrPane): SessionRunLevel | null {
+export function workspaceRunLevel(
+  snapshot: SessionSnapshot,
+  pane: HerdrPane,
+  fallback?: (workspaceId: string) => SessionRunLevel | null,
+): SessionRunLevel | null {
   const workspace = snapshot.workspaces.find((candidate) => candidate.workspace_id === pane.workspace_id);
   const value = workspace?.tokens?.["herdr_web_run_level"];
-  return value === "standard" || value === "admin" ? value : null;
+  if (value === "standard" || value === "admin") return value;
+  return fallback?.(pane.workspace_id) ?? null;
 }
