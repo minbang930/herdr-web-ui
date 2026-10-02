@@ -3,7 +3,7 @@ import { FolderOpen, X } from "lucide-react";
 
 import "./NewSessionDialog.css";
 
-import type { AgentKind } from "../../shared/protocol.ts";
+import type { AgentKind, SessionCapabilities, SessionRunLevel } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
 import { AgentPicker } from "./AgentPicker.tsx";
 import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
@@ -36,9 +36,11 @@ function directoryBasename(value: string): string {
 export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machineName }: NewSessionDialogProps) {
   const t = useT();
   const machineId = useMachineId();
-  const { createWorkspace, fetchAgentKinds } = useMachineApi();
+  const { createWorkspace, fetchAgentKinds, fetchSessionCapabilities } = useMachineApi();
   const [agents, setAgents] = useState<AgentKind[]>([]);
   const [agentKind, setAgentKind] = useState(rememberedAgent);
+  const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
+  const [runLevel, setRunLevel] = useState<SessionRunLevel>("standard");
   const [cwd, setCwd] = useState(defaultCwd ?? "");
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
@@ -59,12 +61,16 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
     setBrowsing(false);
     const stored = rememberedAgent();
     setAgentKind(stored);
+    setCapabilities(null);
+    setRunLevel("standard");
     let cancelled = false;
-    void fetchAgentKinds()
-      .then((next) => {
+    void Promise.all([fetchAgentKinds(), fetchSessionCapabilities()])
+      .then(([nextAgents, nextCapabilities]) => {
         if (cancelled) return;
-        setAgents(next);
-        if (stored && !next.some((agent) => agent.kind === stored)) setAgentKind("");
+        setAgents(nextAgents);
+        setCapabilities(nextCapabilities);
+        if (nextCapabilities.default_run_level) setRunLevel(nextCapabilities.default_run_level);
+        if (stored && !nextAgents.some((agent) => agent.kind === stored)) setAgentKind("");
       })
       .catch((reason: unknown) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -107,6 +113,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
       const result = await createWorkspace({
         cwd: cwd.trim() || null,
         label: name.trim() || null,
+        ...(capabilities?.default_run_level ? { run_level: runLevel } : {}),
         agent: agentKind ? { kind: agentKind } : null,
       });
       if (agentKind && !result.agent_started && result.error?.message) {
@@ -141,6 +148,28 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
             <span className="field-label" id="new-session-agent">{t("Agent")}</span>
             <AgentPicker ref={firstFieldRef} agents={agents} value={agentKind} disabled={fieldsDisabled} labelledBy="new-session-agent" onChange={setAgentKind} />
           </div>
+          {capabilities && capabilities.run_levels.length > 0 && (
+            <div className="field">
+              <span className="field-label" id="new-session-run-level">{t("Privileges")}</span>
+              <div className="new-session-run-level" role="group" aria-labelledby="new-session-run-level">
+                {capabilities.run_levels.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    className={`btn${runLevel === level ? " is-selected" : ""}`}
+                    aria-pressed={runLevel === level}
+                    disabled={fieldsDisabled}
+                    onClick={() => setRunLevel(level)}
+                  >
+                    {level === "standard" ? t("Standard") : t("Administrator")}
+                  </button>
+                ))}
+              </div>
+              <span className="field-hint">{runLevel === "standard"
+                ? t("Recommended. Codex background daemon and normal development tools run without elevation.")
+                : t("Use only when this session needs administrator rights.")}</span>
+            </div>
+          )}
           <div className="field">
             <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
             <div className="new-session-cwd">

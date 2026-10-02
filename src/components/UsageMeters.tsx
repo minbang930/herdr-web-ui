@@ -9,6 +9,7 @@ import { useT, type Translate } from "../lib/i18n.ts";
 import { useSettings, type UsageCount } from "../lib/settings.ts";
 import { formatPercent, formatResetIn, HIGH_PERCENT, machineUsageName, meterPercent, meterText, orderProviders, PROVIDER_MARK, PROVIDER_NAME, tightestWindow, useUsage, windowLabel, type MachineProviderUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { CodexAccountSwitcher } from "./CodexAccountSwitcher.tsx";
 
 /** chips the strip beside Settings holds before the rest fold into "+N" */
 const MAX_CHIPS = 4;
@@ -121,6 +122,7 @@ export function UsageMeters({ machines = [] }: { machines?: readonly Machine[] }
   const count = settings.usageCount;
   // an account hidden in Settings is left out of the strip and the popover alike
   const shown = report ? orderProviders(report.providers, settings.usageOrder).filter((usage) => !settings.usageHidden.includes(usage.key)) : [];
+  const codexMachines = [...new Map(shown.filter((usage) => usage.id === "codex").map((usage) => [usage.machine_id, usage.machine_name] as const)).entries()];
   if (!footer || shown.length === 0) return null;
   const folded = shown.length > MAX_CHIPS ? shown.length - (MAX_CHIPS - 1) : 0;
   const chips = folded > 0 ? shown.slice(0, MAX_CHIPS - 1) : shown;
@@ -153,6 +155,9 @@ export function UsageMeters({ machines = [] }: { machines?: readonly Machine[] }
             </button>
           </header>
           {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
+          {codexMachines.map(([machineId, machineName]) => (
+            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} machines={machines} onUsageRefresh={refresh} />
+          ))}
         </div>
       )}
     </div>
@@ -181,6 +186,7 @@ export function UsagePanel({ machines = [] }: { machines?: readonly Machine[] })
 
   const count = settings.usageCount;
   const shown = report ? orderProviders(report.providers, settings.usageOrder).filter((usage) => !settings.usageHidden.includes(usage.key)) : [];
+  const codexMachines = [...new Map(shown.filter((usage) => usage.id === "codex").map((usage) => [usage.machine_id, usage.machine_name] as const)).entries()];
   if (!top || shown.length === 0) return null;
   return (
     <section className="usage-panel" aria-label={t("Subscription usage")}>
@@ -223,6 +229,9 @@ export function UsagePanel({ machines = [] }: { machines?: readonly Machine[] })
             </button>
           </header>
           {shown.map((usage) => <Provider key={usage.key} usage={usage} now={now} count={count} />)}
+          {codexMachines.map(([machineId, machineName]) => (
+            <CodexAccountSwitcher key={machineId} machineId={machineId} machineName={machineName} machines={machines} onUsageRefresh={refresh} />
+          ))}
         </div>
       )}
     </section>

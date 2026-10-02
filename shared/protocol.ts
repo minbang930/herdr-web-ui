@@ -164,6 +164,63 @@ export interface UsageReport {
   readonly providers: readonly ProviderUsage[];
 }
 
+/** A Codex ChatGPT account whose auth is stored only on the PC that owns it. */
+export interface CodexManagedAccount {
+  /** opaque stable id; credentials and raw provider account ids never reach the browser */
+  readonly id: string;
+  readonly email: string | null;
+  readonly plan: string | null;
+  readonly active: boolean;
+  readonly saved_at: string;
+}
+
+/** GET /api/codex/accounts: local account-switching state for this PC. */
+export interface CodexAccountState {
+  /** file-backed auth can be safely saved/swapped on this PC */
+  readonly supported: boolean;
+  /** why switching is unavailable; null when supported */
+  readonly reason: "not_signed_in" | "non_file_store" | "unsupported_auth" | null;
+  /** active ChatGPT account even before it has been saved as a managed slot */
+  readonly current: {
+    readonly id: string;
+    readonly email: string | null;
+    readonly plan: string | null;
+    readonly saved: boolean;
+  } | null;
+  readonly accounts: readonly CodexManagedAccount[];
+}
+
+/** POST /api/codex/accounts { action:"switch" }: the account changed and these panes were resumed. */
+export interface CodexAccountSwitchResult {
+  readonly state: CodexAccountState;
+  readonly resumed_panes: readonly string[];
+  /** non-fatal daemon/pane recovery notes; the account itself was switched */
+  readonly warnings: readonly string[];
+}
+
+/** One-time public key issued by the destination PC for an encrypted account transfer. */
+export interface CodexImportTicket {
+  readonly transfer_id: string;
+  /** X25519 public key in PEM form; it contains no credential material. */
+  readonly public_key: string;
+  readonly expires_at: string;
+}
+
+/** Auth encrypted source-PC -> destination-PC. The connection server/browser cannot decrypt it. */
+export interface CodexSealedAccount {
+  readonly version: 1;
+  readonly ephemeral_public_key: string;
+  readonly iv: string;
+  readonly ciphertext: string;
+  readonly tag: string;
+}
+
+/** POST /api/codex/accounts { action:"import" }: destination account slot after a sealed transfer. */
+export interface CodexAccountImportResult {
+  readonly state: CodexAccountState;
+  readonly imported_account_id: string;
+}
+
 /** How a request got in, when it did. */
 export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
 /** Why a request did not. */
@@ -333,6 +390,17 @@ export interface WorkspaceCreated {
   agent_started: boolean;
   /** The workspace still exists when its requested agent could not start. */
   error?: { code: string; message: string };
+}
+
+export type SessionRunLevel = "standard" | "admin";
+
+export interface SessionCapabilities {
+  /** null on non-Windows hosts where per-session Windows elevation does not apply */
+  default_run_level: SessionRunLevel | null;
+  /** empty on non-Windows; contains only run levels this Windows bridge verified it can create with real Windows user tokens */
+  run_levels: SessionRunLevel[];
+  /** whether the process hosting herdr/its panes currently owns an elevated Windows token */
+  server_elevated: boolean | null;
 }
 
 /** GET /api/pane/commands: one slash command the pane's agent understands. */

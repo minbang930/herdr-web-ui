@@ -1,6 +1,9 @@
 import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
 import type {
   AgentKind,
+  CodexAccountImportResult,
+  CodexAccountState,
+  CodexAccountSwitchResult,
   DirectoryListing,
   FileInfo,
   ConversationResponse,
@@ -12,6 +15,8 @@ import type {
   PromptAnswer,
   PushKey,
   RemoteAccess,
+  SessionCapabilities,
+  SessionRunLevel,
   SessionSnapshot,
   SlashCommand,
   UsageReport,
@@ -30,6 +35,46 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 export function fetchUsage(refresh = false, machineId = "local"): Promise<UsageReport> {
   const base = machinePath(machineId, "usage");
   return getJson<UsageReport>(refresh ? `${base}?refresh=1` : base);
+}
+
+export function fetchSessionCapabilities(machineId = "local"): Promise<SessionCapabilities> {
+  return getJson<SessionCapabilities>(machinePath(machineId, "session-capabilities"));
+}
+
+export function fetchCodexAccounts(machineId = "local"): Promise<CodexAccountState> {
+  return getJson<CodexAccountState>(machinePath(machineId, "codex/accounts"));
+}
+
+export async function saveCurrentCodexAccount(machineId = "local"): Promise<CodexAccountState> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "save" });
+  return (await response.json()) as CodexAccountState;
+}
+
+export async function removeCodexAccount(accountId: string, machineId = "local"): Promise<CodexAccountState> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "remove", account_id: accountId });
+  return (await response.json()) as CodexAccountState;
+}
+
+export async function switchCodexAccount(accountId: string, machineId = "local"): Promise<CodexAccountSwitchResult> {
+  const response = await sendJson(machinePath(machineId, "codex/accounts"), "POST", { action: "switch", account_id: accountId });
+  return (await response.json()) as CodexAccountSwitchResult;
+}
+
+/**
+ * Copy one saved/current Codex account between connected PCs. The connection server only
+ * orchestrates an encrypted source -> destination transfer and never receives plaintext auth.
+ */
+export async function copyCodexAccountBetweenMachines(
+  sourceMachineId: string,
+  targetMachineId: string,
+  accountId: string,
+): Promise<CodexAccountImportResult> {
+  const response = await sendJson("/api/codex/account-transfer", "POST", {
+    source_machine_id: sourceMachineId,
+    target_machine_id: targetMachineId,
+    account_id: accountId,
+  });
+  return (await response.json()) as CodexAccountImportResult;
 }
 
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
@@ -314,6 +359,7 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
 export interface CreateWorkspaceRequest {
   cwd?: string | null;
   label?: string | null;
+  run_level?: SessionRunLevel;
   agent?: { kind: string; name?: string; args?: string[] } | null;
 }
 

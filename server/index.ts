@@ -41,6 +41,7 @@ import {
   workspaceCreate,
   workspaceMove,
   workspaceRename,
+  workspaceReportMetadata,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
@@ -54,6 +55,10 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
 import { handleUsageRequest, UsageService } from "./usage.ts";
+import { CodexAccountService, handleCodexAccountRequest, handleCodexTransferRequest } from "./codex-accounts.ts";
+import { enterWindowsStandardShell, sessionCapabilities, startAgentInWindowsStandardShell, windowsAgentArgs, WindowsRunLevelStore } from "./windows-run-level.ts";
+import { handleCodexCrossMachineTransfer } from "./codex-transfer.ts";
+import { nextAgentName } from "./agent-name.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -268,8 +273,18 @@ export function createServer(
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
   const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
-  const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
+  const stateDir = options.stateDir ?? defaultStateDir();
+  const devices = new DeviceStore(stateDir);
   const usage = options.usage ?? new UsageService();
+  const windowsRunLevels = new WindowsRunLevelStore(stateDir);
+  const codexAccounts = new CodexAccountService(
+    stateDir,
+    options.codexHome,
+    () => usage.invalidate("codex"),
+    undefined,
+    (workspaceId) => windowsRunLevels.get(workspaceId),
+  );
+  if (process.platform === "win32") queueMicrotask(() => void windowsRunLevels.reapply().catch(() => {}));
   /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
   const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
@@ -796,7 +811,7 @@ export function createServer(
         if (pathname.startsWith("/api/machines/local/")) {
           if (!sameOrigin(request) || (request.method !== "GET" && request.headers.get("x-herdr-machine") !== "1")) return jsonResponse({ error: { code: "invalid_origin", message: "Use PC controls from this app" } }, 403);
           pathname = pathname.replace("/api/machines/local/", "/api/");
-          if (!/^\/api\/(session|agents|pane\/|workspace\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
+          if (!/^\/api\/(session|agents|usage|codex\/accounts|pane\/|workspace\/)/.test(pathname)) return badRequest("invalid_route", "Unknown PC endpoint");
           url.pathname = pathname;
         } else {
           bunServer.timeout(request, pathname === "/api/machines/events" ? 0 : 80);
@@ -845,6 +860,21 @@ export function createServer(
       }
 
       if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
+      if (pathname === "/api/session-capabilities") {
+        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
+        return jsonResponse(await sessionCapabilities());
+      }
+      if (pathname === "/api/codex/accounts") return handleCodexAccountRequest(request, url, codexAccounts);
+      if (pathname === "/api/codex/transfer") {
+        // Internal remote-bridge endpoint only. Never expose the credential-transfer primitives
+        // on the connection server or through the browser's machine proxy.
+        if (machines !== null || token === "" || !isAuthenticated(request, token)) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
+        return handleCodexTransferRequest(request, codexAccounts);
+      }
+      if (pathname === "/api/codex/account-transfer") {
+        if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Copy Codex accounts from the connection server" } }, 404);
+        return handleCodexCrossMachineTransfer(request, machines, codexAccounts);
+      }
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
@@ -927,7 +957,7 @@ export function createServer(
 
       if (pathname === "/api/workspace/create") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { cwd?: unknown; label?: unknown; agent?: { kind?: unknown; name?: unknown; args?: unknown } | null };
+        let payload: { cwd?: unknown; label?: unknown; run_level?: unknown; agent?: { kind?: unknown; name?: unknown; args?: unknown } | null };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -942,6 +972,16 @@ export function createServer(
         const cwd = payload.cwd === undefined ? undefined : expandedDirectory(payload.cwd);
         if (payload.cwd !== undefined && cwd === null) return badRequest("invalid_cwd", "cwd must be an existing directory");
         if (payload.label !== undefined && typeof payload.label !== "string") return badRequest("missing_label", "label must be a string");
+        if (payload.run_level !== undefined && payload.run_level !== "standard" && payload.run_level !== "admin") {
+          return badRequest("invalid_run_level", "run_level must be standard or admin");
+        }
+        const runLevel = payload.run_level as "standard" | "admin" | undefined;
+        if (runLevel !== undefined) {
+          const capabilities = await sessionCapabilities();
+          if (!capabilities.run_levels.includes(runLevel)) {
+            return jsonResponse({ error: { code: "run_level_unavailable", message: runLevel === "admin" ? "This Windows herdr server is not elevated, so it cannot create administrator sessions." : "Per-session Windows run levels are unavailable on this host." } }, 409);
+          }
+        }
         if (payload.agent !== undefined && (typeof payload.agent !== "object" || typeof payload.agent.kind !== "string" || payload.agent.kind.length === 0)) {
           return badRequest("invalid_agent", "agent.kind is required");
         }
@@ -949,26 +989,64 @@ export function createServer(
           || (payload.agent.args !== undefined && (!Array.isArray(payload.agent.args) || !payload.agent.args.every((arg) => typeof arg === "string"))))) {
           return badRequest("invalid_agent", "agent.name must be a string and agent.args must be an array of strings");
         }
-        // agent.start can legitimately take a minute; Bun's default idle timeout is shorter.
-        if (payload.agent) bunServer.timeout(request, 75);
+        // agent startup and linked-token shell bootstrap can legitimately take a minute.
+        if (payload.agent || runLevel === "standard") bunServer.timeout(request, 75);
         try {
           const created = await workspaceCreate({
             ...(cwd === undefined || cwd === null ? {} : { cwd }),
             ...(typeof payload.label === "string" ? { label: payload.label } : {}),
+            ...(runLevel === undefined ? {} : { env: { HERDR_WEB_RUN_LEVEL: runLevel } }),
           });
+
+          if (runLevel !== undefined) {
+            try {
+              windowsRunLevels.set(created.workspace.workspace_id, runLevel);
+              await workspaceReportMetadata(created.workspace.workspace_id, { herdr_web_run_level: runLevel });
+              if (runLevel === "standard") await enterWindowsStandardShell(created.root_pane.pane_id);
+            } catch (error) {
+              windowsRunLevels.delete(created.workspace.workspace_id);
+              await workspaceClose(created.workspace.workspace_id).catch(() => {});
+              throw error;
+            }
+          }
+
           if (!payload.agent) {
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: false });
           }
           try {
             const kind = payload.agent.kind as string;
-            if (isShellAgentKind(kind)) await startShellAgent(kind, created.root_pane.pane_id, payload.agent.args as string[] | undefined);
-            else await agentStart({
-              name: typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : payload.agent.kind as string,
-              kind,
-              paneId: created.root_pane.pane_id,
-              ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
-              timeoutMs: 60_000,
-            });
+            const requestedArgs = payload.agent.args as string[] | undefined;
+            const args = process.platform === "win32"
+              ? windowsAgentArgs(kind, requestedArgs ?? [])
+              : requestedArgs;
+            if (runLevel === "standard") {
+              await startAgentInWindowsStandardShell(kind, created.root_pane.pane_id, args);
+            } else if (isShellAgentKind(kind)) {
+              await startShellAgent(kind, created.root_pane.pane_id, args);
+            } else {
+              const explicitName = typeof payload.agent.name === "string" && payload.agent.name.length > 0
+                ? payload.agent.name
+                : null;
+              const name = explicitName ?? nextAgentName(kind, await sessionSnapshot());
+              try {
+                await agentStart({
+                  name,
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(args === undefined ? {} : { args }),
+                  timeoutMs: 60_000,
+                });
+              } catch (error) {
+                if (explicitName !== null || !(error instanceof HerdrError) || error.code !== "agent_name_taken") throw error;
+                await agentStart({
+                  name: nextAgentName(kind, await sessionSnapshot()),
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(args === undefined ? {} : { args }),
+                  timeoutMs: 60_000,
+                });
+              }
+            }
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: true });
           } catch (error) {
             return jsonResponse({
@@ -1007,7 +1085,10 @@ export function createServer(
         try {
           if (pathname === "/api/workspace/rename") await workspaceRename(payload.workspace_id, payload.label as string);
           else if (pathname === "/api/workspace/move") await workspaceMove(payload.workspace_id, payload.insert_index as number);
-          else await workspaceClose(payload.workspace_id);
+          else {
+            await workspaceClose(payload.workspace_id);
+            windowsRunLevels.delete(payload.workspace_id);
+          }
           return jsonResponse({ ok: true });
         } catch (error) {
           return errorResponse(error);

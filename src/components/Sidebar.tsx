@@ -332,6 +332,9 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                       {workspace.label}
                     </span>
                   )}
+                  {workspace.tokens?.["herdr_web_run_level"] === "admin" && (
+                    <span className="badge workspace-admin-badge" title={t("Administrator session")}>{t("Admin")}</span>
+                  )}
                   <StatusBadge status={workspace.agent_status} />
                   <button type="button" className="sidebar-row-action workspace-rename" aria-label={t("Rename workspace {name}", { name: workspace.label })} onClick={() => beginWorkspaceRename(workspace)}>
                     <Pencil aria-hidden="true" />
@@ -390,6 +393,9 @@ export function Sidebar({ snapshot, selectedPaneId, actions, version, embedded =
                             </span>
                             <span className="pane-meta">
                               {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
+                              {workspace.tokens?.["herdr_web_run_level"] === "admin" && (
+                                <span className="badge workspace-admin-badge" title={t("Administrator session")}>{t("Admin")}</span>
+                              )}
                               <span className="pane-subtitle">{workspace.label} · {cwdBasename(pane.cwd)}</span>
                             </span>
                           </span>

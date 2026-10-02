@@ -484,3 +484,12 @@
     transition: none;
   }
 }
+
+.workspace-admin-badge {
+  height: calc(var(--chip-h) - 2px);
+  padding: 0 var(--space-1);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: calc(var(--chip-h) - 2px);
+}
