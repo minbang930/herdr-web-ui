@@ -20,7 +20,7 @@ import type { CodexAccountImportResult, CodexAccountState, CodexAccountSwitchRes
 import { jsonResponse } from "./http.ts";
 import { psQuote } from "./powershell.ts";
 import { agentStart, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
-import { runWindowsStandardPowerShell, startAgentInWindowsStandardShell, workspaceRunLevel } from "./windows-run-level.ts";
+import { runWindowsStandardPowerShell, startAgentInWindowsStandardShell, windowsAgentArgs, workspaceRunLevel } from "./windows-run-level.ts";
 
 const ACCOUNT_ID_RE = /^[a-f0-9]{24}$/;
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
@@ -169,13 +169,13 @@ const defaultRuntime: CodexAccountRuntime = {
   sendText: paneSendText,
   sendKeys: paneSendKeys,
   start: async (pane) => {
+    const args = process.platform === "win32"
+      ? windowsAgentArgs("codex", ["resume", pane.sessionId])
+      : ["resume", pane.sessionId];
     if (process.platform === "win32" && pane.runLevel === "standard") {
-      await startAgentInWindowsStandardShell("codex", pane.paneId, ["resume", pane.sessionId], 60_000);
+      await startAgentInWindowsStandardShell("codex", pane.paneId, args, 60_000);
       return;
     }
-    const args = process.platform === "win32" && pane.runLevel === "admin"
-      ? ["--no-daemon", "resume", pane.sessionId]
-      : ["resume", pane.sessionId];
     await agentStart({ name: pane.name, kind: "codex", paneId: pane.paneId, args, timeoutMs: 60_000 });
   },
   sleep: Bun.sleep,
