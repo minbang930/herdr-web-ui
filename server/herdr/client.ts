@@ -175,14 +175,31 @@ export interface WorkspaceCreateResult {
 }
 
 export async function workspaceCreate(
-  options: { cwd?: string; label?: string },
+  options: { cwd?: string; label?: string; env?: Record<string, string> },
   socketPath?: string,
 ): Promise<WorkspaceCreateResult> {
   return herdrRpc(
     "workspace.create",
-    { ...(options.cwd === undefined ? {} : { cwd: options.cwd }), ...(options.label === undefined ? {} : { label: options.label }), focus: false },
+    {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.label === undefined ? {} : { label: options.label }),
+      ...(options.env === undefined ? {} : { env: options.env }),
+      focus: false,
+    },
     socketPath,
   );
+}
+
+export async function workspaceReportMetadata(
+  workspaceId: string,
+  tokens: Record<string, string | null>,
+  socketPath?: string,
+): Promise<void> {
+  await herdrRpc("workspace.report_metadata", {
+    workspace_id: workspaceId,
+    source: "user:herdr-web-ui",
+    tokens,
+  }, socketPath);
 }
 
 export async function agentStart(
